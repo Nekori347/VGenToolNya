@@ -299,6 +299,11 @@ export class UploadAssistantRuntime {
     }
 
     releaseRemoved(root) {
+        for (const probeRoot of [...this.probes.keys()]) {
+            if (probeRoot === root || root.contains?.(probeRoot) || !probeRoot.isConnected) {
+                this.releaseProbe(probeRoot);
+            }
+        }
         for (const [surface, session] of this.sessions) {
             if (surface === root || root.contains?.(surface) || !surface.isConnected) {
                 session.unmount();

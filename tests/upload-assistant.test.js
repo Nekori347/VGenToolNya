@@ -157,6 +157,88 @@ test('Iteration 2 L2: modal open/close/reopen has one session and releases both 
     assert.ok(FakeMutationObserver.instances.every((observer) => observer.disconnected));
 });
 
+test('Iteration 2 L2: a detached empty portal releases its bounded probe immediately', () => {
+    FakeMutationObserver.instances = [];
+    const documentObject = new MiniDocument();
+    const repository = new UploadConfigRepository(new ConfigStore(fixtureDriver()));
+    const runtime = new UploadAssistantRuntime({ repository, documentObject, MutationObserverClass: FakeMutationObserver });
+    runtime.mount();
+
+    const portal = documentObject.createElement('div');
+    portal.className = 'ReactModalPortal';
+    documentObject.body.append(portal);
+    FakeMutationObserver.instances[0].callback([{ addedNodes: [portal], removedNodes: [] }]);
+    assert.equal(runtime.probes.size, 1);
+    assert.equal(FakeMutationObserver.instances[1].disconnected, false);
+
+    portal.remove();
+    FakeMutationObserver.instances[0].callback([{ addedNodes: [], removedNodes: [portal] }]);
+    assert.equal(runtime.probes.size, 0);
+    assert.equal(FakeMutationObserver.instances[1].disconnected, true);
+    runtime.unmount();
+});
+
+test('Iteration 2 L1: Description preset updates a Slate editor inside nested Shadow DOM', async () => {
+    const body = { title: '', description: '[{"type":"paragraph","children":[{"text":""}]}]', tags: [] };
+    const store = {
+        getState: () => ({ showcaseReducer: { body } }),
+        dispatch(action) { if (action.type === 'SHOWCASE/UPDATE-DESCRIPTION') body.description = action.description; },
+    };
+    const storeFiber = { dependencies: { firstContext: { memoizedValue: { store }, next: null } }, return: null };
+    const tagProps = { initialTags: [], tagLimit: 20, async onChange() {} };
+    const tagInput = { parentElement: null, '__reactFiber$test': { memoizedProps: tagProps, pendingProps: tagProps, return: storeFiber } };
+    const editor = {
+        children: [{ type: 'paragraph', children: [{ text: '' }] }],
+        apply(operation) {
+            if (operation.type === 'remove_node') this.children.splice(operation.path[0], 1);
+            if (operation.type === 'insert_node') this.children.splice(operation.path[0], 0, operation.node);
+        },
+    };
+    const editable = { parentElement: null, '__reactFiber$test': { memoizedState: { memoizedState: editor, next: null }, return: null } };
+    const shadowHost = { shadowRoot: null };
+    const shadowRoot = { host: shadowHost, querySelectorAll: () => [editable] };
+    shadowHost.shadowRoot = shadowRoot;
+    const documentObject = {
+        createTreeWalker(root) {
+            let done = false;
+            return { nextNode() { if (root === surface && !done) { done = true; return shadowHost; } return null; } };
+        },
+    };
+    shadowHost.ownerDocument = documentObject;
+    const surface = {
+        ownerDocument: documentObject,
+        querySelectorAll(selector) {
+            if (selector.startsWith('input[placeholder')) return [tagInput];
+            return [];
+        },
+    };
+    const serialized = '[{"type":"paragraph","children":[{"text":"Shadow Slate"}]}]';
+    const adapter = new VGenUploadAdapter(surface);
+    await adapter.applyText('description', serialized);
+    assert.deepEqual(editor.children, JSON.parse(serialized));
+    assert.equal(body.description, serialized);
+});
+
+test('Iteration 2 L1: Discovery collapse uses the native ExpandableSection callback', () => {
+    let ariaHidden = 'false';
+    const content = { getAttribute: (name) => name === 'aria-hidden' ? ariaHidden : null, parentElement: null };
+    const root = { children: [content], '__reactProps$test': { onClick() { ariaHidden = 'true'; } } };
+    content.parentElement = root;
+    const props = { isDefaultHidden: false, onClickExpand() {} };
+    const openHook = { memoizedState: true, queue: { dispatch() {} }, next: null };
+    const control = {
+        parentElement: null,
+        closest: (selector) => selector === '[aria-hidden]' ? content : null,
+        '__reactFiber$test': { memoizedProps: props, pendingProps: props, memoizedState: openHook, return: null },
+    };
+    const surface = {
+        contains: (node) => node === root,
+        querySelectorAll: (selector) => selector.startsWith('input[type="radio"]') ? [control] : [],
+    };
+    new VGenUploadAdapter(surface).collapseDiscovery();
+    assert.equal(ariaHidden, 'true');
+});
+
 test('Iteration 2 L1: VGen adapter uses native tag callback, Redux state and discovery form callback', async () => {
     const body = { title: '', description: '[]', tags: ['one'], searchCategoryVariantKeys: [] };
     const store = {
