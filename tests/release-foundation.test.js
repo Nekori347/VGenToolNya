@@ -51,3 +51,14 @@ test('Release Foundation: production build is deterministic and excludes Bridge 
         ]);
     }
 });
+
+test('Release Foundation: page-context Chat hooks use an explicitly reviewed unsafeWindow grant', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'vgen-nya-build-test-'));
+    try {
+        const result = await buildProduction({ outdir: root, releaseBaseUrl: '' });
+        assert.match(result.metadata, /^\/\/ @grant\s+unsafeWindow$/m);
+        assert.match(result.userscript, /typeof unsafeWindow === "object"/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});

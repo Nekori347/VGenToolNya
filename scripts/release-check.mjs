@@ -76,9 +76,12 @@ try {
     check(JSON.stringify(userMetadata.values.get('grant')) === JSON.stringify(config.grant)
         && JSON.stringify(metaMetadata.values.get('grant')) === JSON.stringify(config.grant),
     'userscript grants match the reviewed release configuration');
-    const referencedGMCapabilities = [...new Set(distUser.match(/\bGM_[A-Za-z0-9_]+\b/g) || [])].sort();
-    check(JSON.stringify(referencedGMCapabilities) === JSON.stringify([...config.grant].sort()),
-        `metadata grants cover exactly the GM capabilities referenced by the bundle (${referencedGMCapabilities.join(', ')})`);
+    const referencedCapabilities = [...new Set([
+        ...(distUser.match(/\bGM_[A-Za-z0-9_]+\b/g) || []),
+        ...(distUser.match(/\bunsafeWindow\b/g) || []),
+    ])].sort();
+    check(JSON.stringify(referencedCapabilities) === JSON.stringify([...config.grant].sort()),
+        `metadata grants cover exactly the userscript capabilities referenced by the bundle (${referencedCapabilities.join(', ')})`);
 
     const updateUrl = one(userMetadata.values, 'updateURL');
     const downloadUrl = one(userMetadata.values, 'downloadURL');

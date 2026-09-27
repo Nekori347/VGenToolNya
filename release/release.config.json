@@ -18,7 +18,8 @@
     "GM_setValue",
     "GM_deleteValue",
     "GM_setClipboard",
-    "GM_registerMenuCommand"
+    "GM_registerMenuCommand",
+    "unsafeWindow"
   ],
   "runAt": "document-idle",
   "artifacts": {

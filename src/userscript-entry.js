@@ -1,7 +1,8 @@
 import { createVGenNyaCore } from './index.js';
 
 const APP_VERSION = __VGEN_NYA_APP_VERSION__;
-const core = createVGenNyaCore({ gm: globalThis });
+const pageWindow = typeof unsafeWindow === 'object' && unsafeWindow ? unsafeWindow : globalThis;
+const core = createVGenNyaCore({ gm: globalThis, pageWindow });
 let overlay = null;
 let keydownHandler = null;
 
@@ -61,6 +62,8 @@ function openSettings() {
 function start() {
     GM_registerMenuCommand(`VGenToolNya ${APP_VERSION}：设置`, openSettings);
     core.mountUploadAssistant();
+    core.mountChatAssistant();
+    core.mountFrequentClients();
 }
 
 start();

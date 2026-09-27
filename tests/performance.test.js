@@ -36,12 +36,27 @@ test('L2: Iteration 1 runtime introduces no whole-page observer, wildcard scan o
     const files = await sourceFiles(path.join(projectRoot, 'src'));
     for (const file of files) {
         const source = await readFile(file, 'utf8');
-        assert.doesNotMatch(source, /new\s+MutationObserver\s*\(/, file);
         assert.doesNotMatch(source, /querySelectorAll\s*\(\s*['"]\*['"]\s*\)/, file);
         assert.doesNotMatch(source, /observe\s*\(\s*document\.(?:documentElement|body)/, file);
-        assert.doesNotMatch(source, /XMLHttpRequest\.prototype\.(?:open|send|abort)\s*=/, file);
-        assert.doesNotMatch(source, /(?:window|globalThis)\.(?:fetch|WebSocket|EventSource)\s*=/, file);
+        if (!file.endsWith(path.join('chat', 'network-hooks.js'))) {
+            assert.doesNotMatch(source, /XMLHttpRequest\.prototype\.(?:open|send|abort)\s*=/, file);
+            assert.doesNotMatch(source, /(?:window|windowObject|globalThis|this\.window)\.(?:fetch|WebSocket|EventSource)\s*=/, file);
+        }
     }
+});
+
+test('Iteration 3 L2: Chat runtime has no polling, body subtree observer, wildcard scan or Fiber subtree walk', async () => {
+    const runtime = await readFile(path.join(projectRoot, 'src/chat/chat-assistant.js'), 'utf8');
+    const adapter = await readFile(path.join(projectRoot, 'src/chat/stream-chat-adapter.js'), 'utf8');
+    const clients = await readFile(path.join(projectRoot, 'src/clients/frequent-clients.js'), 'utf8');
+    for (const [name, source] of [['chat runtime', runtime], ['chat adapter', adapter], ['frequent clients', clients]]) {
+        assert.doesNotMatch(source, /setInterval\s*\(|requestAnimationFrame\s*\(/, name);
+        assert.doesNotMatch(source, /querySelectorAll\s*\(\s*['"]\*['"]\s*\)/, name);
+        assert.doesNotMatch(source, /fiber\.(?:child|sibling)/, name);
+        assert.doesNotMatch(source, /observe\([^\n]*documentElement/, name);
+    }
+    assert.match(runtime, /observe\(this\.documentObject\.body, \{ childList: true \}\)/);
+    assert.doesNotMatch(runtime, /observe\(this\.documentObject\.body, \{[^}]*subtree:\s*true/);
 });
 
 test('L2: mounted app and settings modules schedule no idle interval, timeout or RAF loop', async () => {
