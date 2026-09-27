@@ -26,3 +26,5 @@
 20. **dist 只随 Gate 候选提交/tag 更新。** dist 纳入公开仓库与 Release 审核，但禁止手工编辑或随 main 每次 push 自动发布。
 21. **MIT License。** 两个旧基线 metadata 均声明 MIT；VGenToolNya 延续 MIT，并在根目录保留完整 LICENSE。
 22. **Remote Gate 不等于 Stable Release。** 首次源码 push 不创建 tag、Release 或 Tampermonkey update URL；Stable 通道只能在后续 First Release Gate 启用。
+23. **Upload portal 采用两级作用域生命周期。** body 只观察直属 portal 增删，Modal 内部重绘由单 session 局部观察；不恢复 documentElement/body subtree 扫描。
+24. **日常 preset 文件与迁移文件分离。** `vgen-nya.upload-presets` / 旧 `vgen-quick-presets` 仅用于用户日常 Upload preset；`vgen-nya.legacy-export` 只用于跨旧 userscript Migration。

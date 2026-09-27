@@ -19,8 +19,7 @@ export const SETTINGS_NAVIGATION = Object.freeze([
         label: '上传助手',
         tabs: [
             { id: 'combination', label: '组合预设', sections: [plannedSection('Combination Preset')] },
-            { id: 'title', label: '标题', sections: [plannedSection('Title Preset')] },
-            { id: 'description', label: '描述', sections: [plannedSection('Description Preset')] },
+            { id: 'text', label: '标题 / 描述', sections: [plannedSection('Title / Description Preset')] },
             { id: 'discovery', label: '发现标签', sections: [plannedSection('Discovery Preset')] },
             { id: 'search-tags', label: '搜索标签', sections: [plannedSection('Search Tag Preset')] },
             { id: 'interface', label: '界面设置', sections: [plannedSection('上传界面')] },

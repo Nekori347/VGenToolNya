@@ -58,3 +58,12 @@ test('L2: mounted app and settings modules schedule no idle interval, timeout or
         assert.doesNotMatch(source, /requestAnimationFrame\s*\(/, relativePath);
     }
 });
+
+test('Iteration 2 L2: Upload runtime uses bounded ancestor Fiber access and a non-subtree portal observer', async () => {
+    const adapter = await readFile(path.join(projectRoot, 'src/upload/vgen-upload-adapter.js'), 'utf8');
+    const runtime = await readFile(path.join(projectRoot, 'src/upload/upload-assistant.js'), 'utf8');
+    assert.doesNotMatch(adapter, /fiber\.(?:child|sibling)/);
+    assert.doesNotMatch(runtime, /setInterval\s*\(|requestAnimationFrame\s*\(/);
+    assert.match(runtime, /observe\(this\.documentObject\.body, \{ childList: true \}\)/);
+    assert.doesNotMatch(runtime, /observe\(this\.documentObject\.body, \{[^}]*subtree:\s*true/);
+});
