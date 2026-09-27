@@ -2523,7 +2523,9 @@ ${summary}
   };
 
   // src/chat/stream-chat-adapter.js
-  var OVERLAY_SELECTOR = '[class*="ChatLauncher__OuterContainer"], [class*="ExpandedNavOverlay__Overlay"], .str-chat';
+  var CHAT_SESSION_SELECTOR = ".str-chat__channel";
+  var MESSAGES_SURFACE_SELECTOR = ".str-chat__channel-list, .str-chat__channel";
+  var CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
   var MESSAGE_SELECTOR = ".str-chat__message, .str-chat__message-simple";
   var PREVIEW_SELECTOR = '.str-chat__channel-preview, [data-testid*="channel-preview"], [class*="ChatChannelListPreview"]';
   function ownReactValue2(element2, prefix) {
@@ -2591,8 +2593,12 @@ ${summary}
     }
     return null;
   }
+  function jumpButtons(surface) {
+    const roots = surface?.querySelectorAll?.('[class*="JumpToPresent"]') || [];
+    return [...new Set([...roots].map((root) => root.matches?.("button") ? root : root.closest?.("button") || root.querySelector?.("button")).filter(Boolean))];
+  }
   function waitForOverlay(documentObject, MutationObserverClass, timeout = 8e3) {
-    const existing = documentObject.querySelector?.(OVERLAY_SELECTOR);
+    const existing = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
     if (existing) return Promise.resolve(existing);
     if (!MutationObserverClass || !documentObject.body) return Promise.reject(new Error("messages-overlay-unavailable"));
     return new Promise((resolve, reject) => {
@@ -2603,17 +2609,17 @@ ${summary}
       };
       const probe = (root) => {
         if (!root?.querySelector || probes.has(root)) return;
-        const likelyPortal = root.matches?.(".ReactModalPortal, [data-radix-portal], [data-portal]") || root.querySelector?.(".ReactModalPortal, [data-radix-portal], [data-portal]");
+        const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR) || root.querySelector?.(CHAT_PORTAL_SELECTOR);
         if (!likelyPortal) return;
         const local = new MutationObserverClass(() => {
-          const overlay2 = root.matches?.(OVERLAY_SELECTOR) ? root : root.querySelector?.(OVERLAY_SELECTOR);
+          const overlay2 = root.matches?.(MESSAGES_SURFACE_SELECTOR) ? root : root.querySelector?.(MESSAGES_SURFACE_SELECTOR);
           if (overlay2) finish(resolve, overlay2);
         });
         local.observe(root, { childList: true, subtree: true });
         probes.set(root, local);
       };
       const observer = new MutationObserverClass((records) => {
-        const overlay2 = documentObject.querySelector?.(OVERLAY_SELECTOR);
+        const overlay2 = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
         if (overlay2) finish(resolve, overlay2);
         else for (const record of records || []) for (const node of record.addedNodes || []) probe(node);
       });
@@ -2625,11 +2631,11 @@ ${summary}
         callback(value);
       };
       observer.observe(documentObject.body, { childList: true });
-      for (const root of documentObject.querySelectorAll?.(".ReactModalPortal, [data-radix-portal], [data-portal]") || []) probe(root);
+      for (const root of documentObject.querySelectorAll?.(CHAT_PORTAL_SELECTOR) || []) probe(root);
     });
   }
   var StreamChatAdapter = class {
-    static overlaySelector = OVERLAY_SELECTOR;
+    static overlaySelector = CHAT_SESSION_SELECTOR;
     constructor(surface, { documentObject = surface?.ownerDocument || globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
       this.surface = surface;
       this.documentObject = documentObject;
@@ -2722,11 +2728,10 @@ ${summary}
       }
     }
     #markLatestActions() {
-      const buttons = this.surface.querySelectorAll?.('button[class*="JumpToPresentButton__Anchor"]') || [];
-      for (const button of buttons) button.dataset.vgenNyaNativeLatest = "true";
+      for (const button of jumpButtons(this.surface)) button.dataset.vgenNyaNativeLatest = "true";
     }
     jumpToPresent() {
-      const button = this.surface.querySelector?.('button[class*="JumpToPresentButton__Anchor"]');
+      const button = jumpButtons(this.surface)[0];
       if (!button) return false;
       const handler = reactValue(button, "onClick");
       if (typeof handler === "function") handler({ currentTarget: button, target: button });
@@ -2740,7 +2745,7 @@ ${summary}
     static async openUser(target, { documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
       const userID = String(target?.userID || target?.userId || "").trim();
       if (!userID) throw new Error(target?.username ? "user-id-mapping-unavailable" : "invalid-user");
-      let overlay2 = documentObject.querySelector?.(OVERLAY_SELECTOR);
+      let overlay2 = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
       if (!overlay2) {
         const trigger = findChatTrigger(documentObject);
         if (!trigger) throw new Error("native-messages-trigger-unavailable");
@@ -2771,6 +2776,7 @@ ${summary}
   };
 
   // src/chat/chat-assistant.js
+  var CHAT_PORTAL_SELECTOR2 = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
   var CHAT_CSS = `
 .vgen-nya-chat-meta{display:flex!important;align-items:center;justify-content:space-between;gap:20px;width:100%;padding-top:3px;font:11px/18px system-ui,sans-serif;opacity:.72;user-select:text;pointer-events:auto}
 .vgen-nya-chat-time{margin-left:auto;white-space:nowrap}
@@ -2892,7 +2898,7 @@ ${summary}
         ...root?.matches?.(selector) ? [root] : [],
         ...root?.querySelectorAll?.(selector) || []
       ])];
-      const surfaces = candidates.filter((candidate) => !candidates.some((other) => other !== candidate && other.contains?.(candidate)));
+      const surfaces = [...new Set(candidates.map((candidate) => this.#sessionSurface(candidate)))];
       let mounted = 0;
       for (const surface of surfaces) {
         if (this.sessions.has(surface) || !surface.isConnected) continue;
@@ -2905,9 +2911,16 @@ ${summary}
       }
       return mounted;
     }
+    #sessionSurface(channelRoot) {
+      let node = channelRoot;
+      for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+        if (String(node.className || "").includes("ChatModal__Container")) return node;
+      }
+      return channelRoot;
+    }
     #probe(root) {
       if (!this.MutationObserverClass || !root?.querySelectorAll || this.probes.has(root)) return;
-      const likelyPortal = root.matches?.(".ReactModalPortal, [data-radix-portal], [data-portal]") || root.querySelector?.(".ReactModalPortal, [data-radix-portal], [data-portal]");
+      const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR2) || root.querySelector?.(CHAT_PORTAL_SELECTOR2);
       if (!likelyPortal) return;
       const observer = new this.MutationObserverClass(() => {
         if (!root.isConnected || this.scan(root)) this.#releaseProbe(root);
@@ -2961,7 +2974,8 @@ ${summary}
 
   // src/clients/frequent-clients.js
   var PROFILE_CACHE_MS = 6 * 60 * 60 * 1e3;
-  var SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
+  var LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
+  var MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
   var CLIENTS_CSS = `
 .vgen-nya-clients{margin:10px 8px;border:1px solid #6f8588;border-radius:10px;overflow:hidden;background:#13252bdd;color:#eef8f7;font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
@@ -2987,7 +3001,13 @@ ${summary}
       this.documentObject = documentObject;
       this.MutationObserverClass = MutationObserverClass;
       this.fetchImpl = fetchImpl;
-      this.hostResolver = hostResolver || ((root) => root?.matches?.(SIDEBAR_SELECTOR) ? root : root?.querySelector?.(SIDEBAR_SELECTOR));
+      this.hostResolver = hostResolver || ((root) => {
+        const legacyFooter = root?.matches?.(LEGACY_FOOTER_SELECTOR) ? root : root?.querySelector?.(LEGACY_FOOTER_SELECTOR);
+        if (legacyFooter?.parentElement) return { parent: legacyFooter.parentElement, before: legacyFooter };
+        const modernSidebar = root?.matches?.(MODERN_SIDEBAR_SELECTOR) ? root : root?.querySelector?.(MODERN_SIDEBAR_SELECTOR);
+        const modernFooter = modernSidebar?.querySelector?.(":scope > .sidebarFooter");
+        return modernSidebar ? { parent: modernSidebar, before: modernFooter || null } : null;
+      });
       this.panel = null;
       this.host = null;
       this.observer = null;
@@ -3032,8 +3052,10 @@ ${summary}
       if (this.panel) this.render();
     }
     #mountIn(root) {
-      const host = this.hostResolver(root);
-      if (!host || this.panel) return false;
+      const mount = this.hostResolver(root);
+      if (!mount || this.panel) return false;
+      const host = mount.parent || mount;
+      const before = mount.before || null;
       this.host = host;
       this.panel = make3(this.documentObject, "section", "vgen-nya-clients notranslate");
       this.panel.dataset.vgenNyaUi = "frequent-clients";
@@ -3043,7 +3065,8 @@ ${summary}
       this.panel.addEventListener("dragstart", this.#onDragStart);
       this.panel.addEventListener("dragover", this.#onDragOver);
       this.panel.addEventListener("drop", this.#onDrop);
-      host.append(this.panel);
+      if (before && typeof host.insertBefore === "function") host.insertBefore(this.panel, before);
+      else host.append(this.panel);
       this.render();
       void this.refreshStale();
       return true;

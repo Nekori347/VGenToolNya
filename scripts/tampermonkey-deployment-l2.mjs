@@ -412,6 +412,265 @@ async function probeUploadLivePage() {
     process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
 }
 
+async function chatLivePage() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    if (!page) throw new Error('The VGen live-test page is not open');
+    return page;
+}
+
+async function reloadChatLivePage() {
+    const page = await chatLivePage();
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try { await client.send('Page.reload', { ignoreCache: true }); }
+    finally { client.close(); }
+    await waitForExpression(page, `document.readyState === 'complete'`, 20_000);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    process.stdout.write(`${JSON.stringify({ reloaded: true, page: page.url }, null, 2)}\n`);
+}
+
+async function openChatLiveOverlay() {
+    const page = await chatLivePage();
+    const clicked = await evaluate(page, `(() => {
+        const icon = [...document.querySelectorAll('svg.chatIcon, [class*="chatIcon"]')]
+            .find((node) => node.closest('button, [role="button"]'));
+        const trigger = icon?.closest('button, [role="button"]');
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+    })()`);
+    if (!clicked) throw new Error('Native VGen Messages trigger was not found');
+    await waitForExpression(page, `Boolean(document.querySelector('[class*="ChatLauncher__OuterContainer"], [class*="ExpandedNavOverlay__Overlay"], .str-chat'))`, 8_000);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    process.stdout.write(`${JSON.stringify({ opened: true, page: page.url }, null, 2)}\n`);
+}
+
+async function probeChatLive() {
+    const page = await chatLivePage();
+    const details = await evaluate(page, `(() => {
+        const overlay = document.querySelector('.str-chat') || document.querySelector('[class*="ChatLauncher__OuterContainer"], [class*="ExpandedNavOverlay__Overlay"]');
+        const previews = overlay ? [...overlay.querySelectorAll('.str-chat__channel-preview, [data-testid*="channel-preview"], [class*="ChatChannelListPreview"]')] : [];
+        const messages = overlay ? [...overlay.querySelectorAll('.str-chat__message, .str-chat__message-simple')] : [];
+        return {
+            url: location.href,
+            overlay: Boolean(overlay),
+            overlayClass: String(overlay?.className || ''),
+            strChatCount: document.querySelectorAll('.str-chat').length,
+            previewCount: previews.length,
+            previews: previews.slice(0, 30).map((node, index) => ({
+                index,
+                text: (node.innerText || '').trim().slice(0, 300),
+                unread: Boolean(node.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [data-testid*="unread"]')),
+                className: String(node.className || ''),
+            })),
+            messageCount: messages.length,
+            chatMetaCount: overlay?.querySelectorAll('[data-vgen-nya-ui="chat-meta"]').length || 0,
+            readMarkerCount: overlay?.querySelectorAll('[data-vgen-nya-ui="read-marker"]').length || 0,
+            compactReactionCount: overlay?.querySelectorAll('[data-vgen-nya-compact-reactions="true"]').length || 0,
+            latestButtons: overlay ? [...overlay.querySelectorAll('button[class*="JumpToPresentButton__Anchor"]')].map((node) => ({
+                marked: node.dataset.vgenNyaNativeLatest === 'true', text: (node.innerText || node.title || '').trim(),
+            })) : [],
+            frequentPanels: document.querySelectorAll('[data-vgen-nya-ui="frequent-clients"]').length,
+            frequentRows: document.querySelectorAll('[data-vgen-nya-ui="frequent-clients"] [data-client-id]').length,
+            fetchName: window.fetch?.name || '',
+            overlayText: (overlay?.innerText || '').slice(0, 3000),
+            classInventory: overlay ? [...overlay.querySelectorAll('*')].map((node) => String(node.className || ''))
+                .filter((value) => /chat|channel|message|reaction|jump/i.test(value)).slice(0, 160) : [],
+            roots: [...document.querySelectorAll('[class*="ChatLauncher__OuterContainer"], [class*="ExpandedNavOverlay__Overlay"], .str-chat')].map((node) => ({
+                className: String(node.className || ''), connected: node.isConnected, text: (node.innerText || '').trim().slice(0, 240),
+                parentClass: String(node.parentElement?.className || ''),
+            })),
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function selectChatLiveConversation() {
+    const page = await chatLivePage();
+    const index = Number(process.env.VGEN_NYA_CHAT_INDEX || 0);
+    const result = await evaluate(page, `(() => {
+        const list = document.querySelector('.str-chat__channel-list');
+        const cards = list ? [...list.querySelectorAll('[class*="ChatChannelListPreview__PossiblyWithDivider"]')] : [];
+        const card = cards[${JSON.stringify(index)}];
+        if (!card) return { clicked: false, count: cards.length };
+        const unread = Boolean(card.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [data-testid*="unread"]'));
+        if (unread) return { clicked: false, count: cards.length, blockedUnread: true };
+        const target = card.querySelector('[class*="ChatChannelListPreview__Container"]') || card;
+        const rect = target.getBoundingClientRect();
+        return { clicked: true, count: cards.length, blockedUnread: false, x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 36) };
+    })()`);
+    if (!result.clicked) throw new Error(result.blockedUnread ? 'Refusing to open an unread conversation' : 'Safe conversation card was not found');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: result.x, y: result.y });
+        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: result.x, y: result.y, button: 'left', clickCount: 1 });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: result.x, y: result.y, button: 'left', clickCount: 1 });
+    } finally { client.close(); }
+    await waitForExpression(page, `Boolean(document.querySelector('.str-chat__channel'))`, 12_000);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    process.stdout.write(`${JSON.stringify({ selected: true, index, available: result.count }, null, 2)}\n`);
+}
+
+async function cycleChatLiveOverlay() {
+    const page = await chatLivePage();
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    const cycles = [];
+    try {
+        await client.send('Input.enable').catch(() => {});
+        for (let index = 0; index < 3; index += 1) {
+            const close = await evaluate(page, `(() => { const node = document.querySelector('.str-chat__channel button.closeBtn');
+                const rect = node?.getBoundingClientRect(); return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null; })()`);
+            if (!close) throw new Error('Native Chat close button was not found');
+            await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: close.x, y: close.y, button: 'left', clickCount: 1 });
+            await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: close.x, y: close.y, button: 'left', clickCount: 1 });
+            await waitForExpression(page, `document.querySelectorAll('.str-chat__channel').length === 0`, 5_000);
+            await new Promise((resolve) => setTimeout(resolve, 350));
+            const closed = await evaluate(page, `({ channels: document.querySelectorAll('.str-chat__channel').length,
+                meta: document.querySelectorAll('[data-vgen-nya-ui="chat-meta"]').length,
+                marker: document.querySelectorAll('[data-vgen-nya-ui="read-marker"]').length })`);
+            const clicked = await evaluate(page, `(() => {
+                const icon = [...document.querySelectorAll('svg.chatIcon, [class*="chatIcon"]')].find((node) => node.closest('button, [role="button"]'));
+                const trigger = icon?.closest('button, [role="button"]');
+                trigger?.click(); return Boolean(trigger);
+            })()`);
+            if (!clicked) throw new Error('Native Messages trigger disappeared');
+            await waitForExpression(page, `document.querySelector('[class*="ChatChannelListPreview__PossiblyWithDivider"]')?.getBoundingClientRect().width > 0`, 8_000);
+            const card = await evaluate(page, `(() => { const node = document.querySelector('[class*="ChatChannelListPreview__PossiblyWithDivider"]');
+                if (node?.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [data-testid*="unread"]')) return null;
+                const target = node?.querySelector('[class*="ChatChannelListPreview__Container"]') || node;
+                const rect = target?.getBoundingClientRect(); return rect ? { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 36) } : null; })()`);
+            if (!card) throw new Error('A safe existing conversation was not found');
+            await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: card.x, y: card.y, button: 'left', clickCount: 1 });
+            await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: card.x, y: card.y, button: 'left', clickCount: 1 });
+            await waitForExpression(page, `document.querySelectorAll('.str-chat__channel').length === 1
+                && document.querySelectorAll('[data-vgen-nya-ui="chat-meta"]').length > 0`, 8_000);
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const opened = await evaluate(page, `({ channels: document.querySelectorAll('.str-chat__channel').length,
+                meta: document.querySelectorAll('[data-vgen-nya-ui="chat-meta"]').length,
+                marker: document.querySelectorAll('[data-vgen-nya-ui="read-marker"]').length,
+                duplicateGroups: [...document.querySelectorAll('.str-chat__message-bubble-group')]
+                    .filter((group) => group.querySelectorAll(':scope > [data-vgen-nya-ui="chat-meta"]').length > 1).length })`);
+            cycles.push({ index: index + 1, closed, opened });
+        }
+    } finally { client.close(); }
+    process.stdout.write(`${JSON.stringify({ cycles }, null, 2)}\n`);
+}
+
+async function captureChatLive() {
+    const page = await chatLivePage();
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Page.bringToFront');
+        const { data } = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        const output = path.join(projectRoot, 'staging', 'upload-live-test', 'upload-live', 'chat-live.png');
+        await writeFile(output, Buffer.from(data, 'base64'));
+        process.stdout.write(`${JSON.stringify({ captured: true, output }, null, 2)}\n`);
+    } finally { client.close(); }
+}
+
+async function inspectChatLiveLayout() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(() => {
+        const root = document.querySelector('.str-chat__channel');
+        const rect = (node) => { const value = node?.getBoundingClientRect(); return value ? { x: value.x, y: value.y, width: value.width, height: value.height } : null; };
+        const metas = root ? [...root.querySelectorAll('[data-vgen-nya-ui="chat-meta"]')] : [];
+        const reactions = root ? [...root.querySelectorAll('[data-vgen-nya-compact-reactions="true"]')] : [];
+        const buttons = root ? [...root.querySelectorAll('button')] : [];
+        return {
+            metas: metas.slice(-5).map((node) => ({ text: node.innerText, rect: rect(node), display: getComputedStyle(node).display,
+                color: getComputedStyle(node).color, parentClass: String(node.parentElement?.className || ''), parentOverflow: getComputedStyle(node.parentElement).overflow })),
+            reactions: reactions.slice(-5).map((node) => ({ rect: rect(node), display: getComputedStyle(node).display,
+                className: String(node.className || ''), parentClass: String(node.parentElement?.className || '') })),
+            buttons: buttons.map((node, index) => ({ index, text: (node.innerText || '').trim(), title: node.title || '', aria: node.getAttribute('aria-label') || '',
+                className: String(node.className || ''), rect: rect(node) })).filter((item) => item.rect?.width && item.rect?.height).slice(0, 120),
+            duplicateMetaGroups: root ? [...root.querySelectorAll('.str-chat__message-bubble-group')].filter((group) => group.querySelectorAll(':scope > [data-vgen-nya-ui="chat-meta"]').length > 1).length : 0,
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function summarizeChatLive() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(() => {
+        const channels = [...document.querySelectorAll('.str-chat__channel')];
+        const metas = [...document.querySelectorAll('[data-vgen-nya-ui="chat-meta"]')];
+        const groups = [...document.querySelectorAll('.str-chat__message-bubble-group')];
+        const reactions = [...document.querySelectorAll('[data-vgen-nya-compact-reactions="true"]')];
+        const latest = [...document.querySelectorAll('button[class*="JumpToPresentButton__Anchor"]')];
+        return {
+            streamRoots: document.querySelectorAll('.str-chat').length,
+            channelRoots: channels.length,
+            decoratedChannelRoots: new Set(metas.map((node) => node.closest('.str-chat__channel')).filter(Boolean)).size,
+            messages: document.querySelectorAll('.str-chat__message, .str-chat__message-simple').length,
+            metas: metas.length,
+            duplicateMetaGroups: groups.filter((group) => group.querySelectorAll(':scope > [data-vgen-nya-ui="chat-meta"]').length > 1).length,
+            reactions: reactions.length,
+            reactionButtonsRemainNative: reactions.every((node) => node.querySelector('button')),
+            latestButtons: latest.length,
+            latestMarked: latest.filter((node) => node.dataset.vgenNyaNativeLatest === 'true').length,
+            assistantStyles: document.querySelectorAll('style[data-vgen-nya-ui="chat-style"]').length,
+            composerEmpty: [...document.querySelectorAll('textarea, [contenteditable="true"]')].filter((node) => node.closest('.str-chat__channel'))
+                .every((node) => !(node.value || node.textContent || '').trim()),
+            scrollCandidates: [...document.querySelectorAll('.str-chat__message-list-scroll, .str-chat__list, .str-chat__ul, .channelContainer')].map((node) => ({
+                className: String(node.className || ''), scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight,
+                overflowY: getComputedStyle(node).overflowY,
+            })),
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function probeFrequentClientsLive() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(() => ({
+        url: location.href,
+        panelCount: document.querySelectorAll('[data-vgen-nya-ui="frequent-clients"]').length,
+        hosts: [...document.querySelectorAll('aside, nav, [class*="Sidebar"], [class*="sidebar"]')].map((node) => ({
+            tag: node.tagName, className: String(node.className || ''), textLength: (node.innerText || '').length,
+            rect: (() => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })(),
+        })).filter((item) => item.rect.width > 0 && item.rect.height > 0).slice(0, 80),
+    }))()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function exerciseChatLiveJump() {
+    const page = await chatLivePage();
+    const location = await evaluate(page, `(() => {
+        const list = document.querySelector('.str-chat__list');
+        if (!list) return { found: false };
+        const rect = list.getBoundingClientRect();
+        return { found: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    })()`);
+    if (!location.found) throw new Error('Native Stream message scroller was not found');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: location.x, y: location.y });
+        for (let index = 0; index < 4; index += 1) {
+            await client.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: location.x, y: location.y, deltaX: 0, deltaY: -700 });
+            await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+    } finally { client.close(); }
+    const before = await evaluate(page, `(() => { const list = document.querySelector('.str-chat__list');
+        return { distance: list.scrollHeight - list.scrollTop - list.clientHeight, scrollTop: list.scrollTop }; })()`);
+    await waitForExpression(page, `Boolean(document.querySelector('[class*="JumpToPresent"]'))`, 5_000);
+    const target = await evaluate(page, `(() => {
+        const root = document.querySelector('[class*="JumpToPresent"]');
+        const button = root?.matches('button') ? root : root?.closest('button') || root?.querySelector('button');
+        const rect = button?.getBoundingClientRect();
+        return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, marked: button.dataset.vgenNyaNativeLatest === 'true' } : null;
+    })()`);
+    if (!target) throw new Error('Native Jump to present button was not found');
+    const clickClient = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await clickClient.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: target.x, y: target.y, button: 'left', clickCount: 1 });
+        await clickClient.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: target.x, y: target.y, button: 'left', clickCount: 1 });
+    } finally { clickClient.close(); }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const after = await evaluate(page, `(() => { const list = document.querySelector('.str-chat__list');
+        return { distance: list.scrollHeight - list.scrollTop - list.clientHeight,
+            buttonPresent: Boolean(document.querySelector('[class*="JumpToPresent"]')) }; })()`);
+    process.stdout.write(`${JSON.stringify({ before, markedBeforeClick: target.marked, after }, null, 2)}\n`);
+}
+
 async function navigateUploadLiveCreator() {
     const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
     if (!page) throw new Error('The VGen live-test page is not open');
@@ -1402,6 +1661,16 @@ if (process.argv.includes('--prepare-upload-live')) await prepareUploadLiveProfi
 if (process.argv.includes('--update-upload-live-userscript')) await updateUploadLiveUserscript();
 if (process.argv.includes('--show-upload-live')) await showUploadLiveWindow();
 if (process.argv.includes('--probe-upload-live')) await probeUploadLivePage();
+if (process.argv.includes('--open-chat-live')) await openChatLiveOverlay();
+if (process.argv.includes('--reload-chat-live')) await reloadChatLivePage();
+if (process.argv.includes('--probe-chat-live')) await probeChatLive();
+if (process.argv.includes('--select-chat-live')) await selectChatLiveConversation();
+if (process.argv.includes('--cycle-chat-live')) await cycleChatLiveOverlay();
+if (process.argv.includes('--capture-chat-live')) await captureChatLive();
+if (process.argv.includes('--inspect-chat-live-layout')) await inspectChatLiveLayout();
+if (process.argv.includes('--summarize-chat-live')) await summarizeChatLive();
+if (process.argv.includes('--probe-frequent-clients-live')) await probeFrequentClientsLive();
+if (process.argv.includes('--exercise-chat-live-jump')) await exerciseChatLiveJump();
 if (process.argv.includes('--navigate-upload-live-creator')) await navigateUploadLiveCreator();
 if (process.argv.includes('--navigate-upload-live-portfolio')) await navigateUploadLivePortfolio();
 if (process.argv.includes('--navigate-upload-live-services')) await navigateUploadLiveServices();

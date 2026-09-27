@@ -1,5 +1,7 @@
 import { StreamChatAdapter } from './stream-chat-adapter.js';
 
+const CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
+
 const CHAT_CSS = `
 .vgen-nya-chat-meta{display:flex!important;align-items:center;justify-content:space-between;gap:20px;width:100%;padding-top:3px;font:11px/18px system-ui,sans-serif;opacity:.72;user-select:text;pointer-events:auto}
 .vgen-nya-chat-time{margin-left:auto;white-space:nowrap}
@@ -135,7 +137,7 @@ export class ChatAssistantRuntime {
             ...(root?.matches?.(selector) ? [root] : []),
             ...(root?.querySelectorAll?.(selector) || []),
         ])];
-        const surfaces = candidates.filter((candidate) => !candidates.some((other) => other !== candidate && other.contains?.(candidate)));
+        const surfaces = [...new Set(candidates.map((candidate) => this.#sessionSurface(candidate)))];
         let mounted = 0;
         for (const surface of surfaces) {
             if (this.sessions.has(surface) || !surface.isConnected) continue;
@@ -149,9 +151,17 @@ export class ChatAssistantRuntime {
         return mounted;
     }
 
+    #sessionSurface(channelRoot) {
+        let node = channelRoot;
+        for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+            if (String(node.className || '').includes('ChatModal__Container')) return node;
+        }
+        return channelRoot;
+    }
+
     #probe(root) {
         if (!this.MutationObserverClass || !root?.querySelectorAll || this.probes.has(root)) return;
-        const likelyPortal = root.matches?.('.ReactModalPortal, [data-radix-portal], [data-portal]') || root.querySelector?.('.ReactModalPortal, [data-radix-portal], [data-portal]');
+        const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR) || root.querySelector?.(CHAT_PORTAL_SELECTOR);
         if (!likelyPortal) return;
         const observer = new this.MutationObserverClass(() => {
             if (!root.isConnected || this.scan(root)) this.#releaseProbe(root);

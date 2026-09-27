@@ -1,4 +1,6 @@
-const OVERLAY_SELECTOR = '[class*="ChatLauncher__OuterContainer"], [class*="ExpandedNavOverlay__Overlay"], .str-chat';
+const CHAT_SESSION_SELECTOR = '.str-chat__channel';
+const MESSAGES_SURFACE_SELECTOR = '.str-chat__channel-list, .str-chat__channel';
+const CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
 const MESSAGE_SELECTOR = '.str-chat__message, .str-chat__message-simple';
 const PREVIEW_SELECTOR = '.str-chat__channel-preview, [data-testid*="channel-preview"], [class*="ChatChannelListPreview"]';
 
@@ -77,8 +79,15 @@ function findChatTrigger(documentObject) {
     return null;
 }
 
+function jumpButtons(surface) {
+    const roots = surface?.querySelectorAll?.('[class*="JumpToPresent"]') || [];
+    return [...new Set([...roots].map((root) => (
+        root.matches?.('button') ? root : root.closest?.('button') || root.querySelector?.('button')
+    )).filter(Boolean))];
+}
+
 function waitForOverlay(documentObject, MutationObserverClass, timeout = 8000) {
-    const existing = documentObject.querySelector?.(OVERLAY_SELECTOR);
+    const existing = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
     if (existing) return Promise.resolve(existing);
     if (!MutationObserverClass || !documentObject.body) return Promise.reject(new Error('messages-overlay-unavailable'));
     return new Promise((resolve, reject) => {
@@ -89,18 +98,17 @@ function waitForOverlay(documentObject, MutationObserverClass, timeout = 8000) {
         };
         const probe = (root) => {
             if (!root?.querySelector || probes.has(root)) return;
-            const likelyPortal = root.matches?.('.ReactModalPortal, [data-radix-portal], [data-portal]')
-                || root.querySelector?.('.ReactModalPortal, [data-radix-portal], [data-portal]');
+            const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR) || root.querySelector?.(CHAT_PORTAL_SELECTOR);
             if (!likelyPortal) return;
             const local = new MutationObserverClass(() => {
-                const overlay = root.matches?.(OVERLAY_SELECTOR) ? root : root.querySelector?.(OVERLAY_SELECTOR);
+                const overlay = root.matches?.(MESSAGES_SURFACE_SELECTOR) ? root : root.querySelector?.(MESSAGES_SURFACE_SELECTOR);
                 if (overlay) finish(resolve, overlay);
             });
             local.observe(root, { childList: true, subtree: true });
             probes.set(root, local);
         };
         const observer = new MutationObserverClass((records) => {
-            const overlay = documentObject.querySelector?.(OVERLAY_SELECTOR);
+            const overlay = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
             if (overlay) finish(resolve, overlay);
             else for (const record of records || []) for (const node of record.addedNodes || []) probe(node);
         });
@@ -112,12 +120,12 @@ function waitForOverlay(documentObject, MutationObserverClass, timeout = 8000) {
             callback(value);
         };
         observer.observe(documentObject.body, { childList: true });
-        for (const root of documentObject.querySelectorAll?.('.ReactModalPortal, [data-radix-portal], [data-portal]') || []) probe(root);
+        for (const root of documentObject.querySelectorAll?.(CHAT_PORTAL_SELECTOR) || []) probe(root);
     });
 }
 
 export class StreamChatAdapter {
-    static overlaySelector = OVERLAY_SELECTOR;
+    static overlaySelector = CHAT_SESSION_SELECTOR;
 
     constructor(surface, { documentObject = surface?.ownerDocument || globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
         this.surface = surface;
@@ -217,12 +225,11 @@ export class StreamChatAdapter {
     }
 
     #markLatestActions() {
-        const buttons = this.surface.querySelectorAll?.('button[class*="JumpToPresentButton__Anchor"]') || [];
-        for (const button of buttons) button.dataset.vgenNyaNativeLatest = 'true';
+        for (const button of jumpButtons(this.surface)) button.dataset.vgenNyaNativeLatest = 'true';
     }
 
     jumpToPresent() {
-        const button = this.surface.querySelector?.('button[class*="JumpToPresentButton__Anchor"]');
+        const button = jumpButtons(this.surface)[0];
         if (!button) return false;
         const handler = reactValue(button, 'onClick');
         if (typeof handler === 'function') handler({ currentTarget: button, target: button });
@@ -238,7 +245,7 @@ export class StreamChatAdapter {
     static async openUser(target, { documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
         const userID = String(target?.userID || target?.userId || '').trim();
         if (!userID) throw new Error(target?.username ? 'user-id-mapping-unavailable' : 'invalid-user');
-        let overlay = documentObject.querySelector?.(OVERLAY_SELECTOR);
+        let overlay = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
         if (!overlay) {
             const trigger = findChatTrigger(documentObject);
             if (!trigger) throw new Error('native-messages-trigger-unavailable');

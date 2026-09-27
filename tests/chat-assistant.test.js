@@ -167,8 +167,8 @@ test('Iteration 3 L2: Overlay A to B, close and reopen keeps one session and cle
     });
     runtime.mount();
     const bodyObserver = FakeMutationObserver.instances[0];
-    const first = documentObject.createElement('div'); first.className = 'str-chat';
-    const nested = documentObject.createElement('div'); nested.className = 'str-chat'; first.append(nested); documentObject.body.append(first);
+    const first = documentObject.createElement('div'); first.className = 'str-chat str-chat__channel';
+    const nested = documentObject.createElement('div'); nested.className = 'str-chat str-chat__channel'; first.append(nested); documentObject.body.append(first);
     bodyObserver.callback([{ addedNodes: [first], removedNodes: [] }]);
     assert.equal(runtime.sessions.size, 1);
     const session = runtime.sessions.get(first);
@@ -179,7 +179,7 @@ test('Iteration 3 L2: Overlay A to B, close and reopen keeps one session and cle
     first.remove(); bodyObserver.callback([{ addedNodes: [], removedNodes: [first] }]);
     assert.equal(runtime.sessions.size, 0);
     assert.equal(adapters.get(first).cleaned, 1);
-    const second = documentObject.createElement('div'); second.className = 'str-chat'; documentObject.body.append(second);
+    const second = documentObject.createElement('div'); second.className = 'str-chat str-chat__channel'; documentObject.body.append(second);
     bodyObserver.callback([{ addedNodes: [second], removedNodes: [] }]);
     assert.equal(runtime.sessions.size, 1);
     runtime.unmount();
@@ -213,9 +213,63 @@ test('Iteration 3 L2: a detached empty Chat portal releases its bounded probe im
     runtime.unmount();
 });
 
+test('Iteration 3 L2: an asynchronously populated native ChatLauncher mounts one active session then releases its probe', () => {
+    FakeMutationObserver.instances = [];
+    const repo = repository({ [CONFIG_KEYS.chatSettings]: { enabled: true } });
+    const documentObject = new MiniDocument();
+    const runtime = new ChatAssistantRuntime({
+        repository: repo,
+        readGate: new ReadGate(),
+        networkHooks: { configureRead() {} },
+        documentObject,
+        MutationObserverClass: FakeMutationObserver,
+        adapterFactory: () => ({ refresh: () => ({ cid: 'messaging:live', messages: 0 }), cleanup() {} }),
+    });
+    runtime.mount();
+    const bodyObserver = FakeMutationObserver.instances[0];
+    const launcher = documentObject.createElement('div'); launcher.className = 'ChatLauncher__OuterContainer';
+    documentObject.body.append(launcher);
+    bodyObserver.callback([{ addedNodes: [launcher], removedNodes: [] }]);
+    assert.equal(runtime.probes.size, 1);
+    const probeObserver = FakeMutationObserver.instances[1];
+    const channel = documentObject.createElement('div'); channel.className = 'str-chat str-chat__channel'; launcher.append(channel);
+    probeObserver.callback([{ addedNodes: [channel], removedNodes: [] }]);
+    assert.equal(runtime.sessions.size, 1);
+    assert.equal(runtime.probes.size, 0);
+    assert.equal(probeObserver.disconnected, true);
+    runtime.unmount();
+});
+
+test('Iteration 3 L2: replacing the Stream channel inside a stable ChatModal refreshes the same session', () => {
+    FakeMutationObserver.instances = [];
+    const repo = repository({ [CONFIG_KEYS.chatSettings]: { enabled: true } });
+    const documentObject = new MiniDocument();
+    const modal = documentObject.createElement('div'); modal.className = 'ChatModal__Container';
+    const first = documentObject.createElement('div'); first.className = 'str-chat str-chat__channel'; modal.append(first); documentObject.body.append(modal);
+    const adapter = { cid: 'A', refresh: () => ({ cid: adapter.cid, messages: 0 }), cleanup() {} };
+    const runtime = new ChatAssistantRuntime({
+        repository: repo, readGate: new ReadGate(), networkHooks: { configureRead() {} }, documentObject,
+        MutationObserverClass: FakeMutationObserver, adapterFactory: (surface) => {
+            assert.equal(surface, modal);
+            return adapter;
+        },
+    });
+    runtime.mount();
+    assert.equal(runtime.sessions.size, 1);
+    const session = runtime.sessions.get(modal);
+    assert.equal(session.cid, 'A');
+    adapter.cid = 'B';
+    const second = documentObject.createElement('div'); second.className = 'str-chat str-chat__channel';
+    modal.replaceChildren(second);
+    session.observer.callback([{ addedNodes: [second], removedNodes: [first] }]);
+    assert.equal(runtime.sessions.size, 1);
+    assert.equal(session.cid, 'B');
+    runtime.unmount();
+});
+
 test('Iteration 3 L1: timestamp, seen and compact reaction render once without replacing native reaction', () => {
     const documentObject = new MiniDocument();
-    const surface = documentObject.createElement('div'); surface.className = 'str-chat'; documentObject.body.append(surface);
+    const surface = documentObject.createElement('div'); surface.className = 'str-chat str-chat__channel'; documentObject.body.append(surface);
     const group = documentObject.createElement('div'); group.className = 'str-chat__message-bubble-group';
     const element = documentObject.createElement('div'); element.className = 'str-chat__message';
     const bubble = documentObject.createElement('div'); bubble.className = 'str-chat__message-bubble';
@@ -238,7 +292,7 @@ test('Iteration 3 L1: timestamp, seen and compact reaction render once without r
 
 test('Iteration 3 L1: Quick Chat adapter selects an existing native Stream conversation without sending', async () => {
     const documentObject = new MiniDocument();
-    const overlay = documentObject.createElement('div'); overlay.className = 'str-chat'; documentObject.body.append(overlay);
+    const overlay = documentObject.createElement('div'); overlay.className = 'str-chat str-chat__channel-list'; documentObject.body.append(overlay);
     const preview = documentObject.createElement('div'); preview.className = 'str-chat__channel-preview'; overlay.append(preview);
     const selected = [];
     const channel = { cid: 'messaging:existing', state: { members: { self: {}, target: {} } } };
@@ -249,14 +303,44 @@ test('Iteration 3 L1: Quick Chat adapter selects an existing native Stream conve
     assert.equal(descendants(overlay).some((node) => /send|发送/i.test(node.textContent)), false);
 });
 
+test('Iteration 3 L1: Quick Chat ignores unrelated persistent navigation overlays', async () => {
+    const documentObject = new MiniDocument();
+    const unrelated = documentObject.createElement('div'); unrelated.className = 'ExpandedNavOverlay__Overlay';
+    const overlay = documentObject.createElement('div'); overlay.className = 'str-chat str-chat__channel-list';
+    const preview = documentObject.createElement('div'); preview.className = 'str-chat__channel-preview'; overlay.append(preview);
+    documentObject.body.append(unrelated, overlay);
+    const selected = [];
+    const channel = { cid: 'messaging:existing', state: { members: { self: {}, target: {} } } };
+    preview['__reactProps$test'] = { channel, setActiveChannel: (value) => selected.push(value) };
+    const result = await StreamChatAdapter.openUser({ userID: 'target' }, { documentObject, MutationObserverClass: FakeMutationObserver });
+    assert.equal(result.cid, 'messaging:existing');
+    assert.deepEqual(selected, [channel]);
+});
+
 test('Iteration 3 L1: Jump to present remains an explicit native action and is never auto-invoked', () => {
     const documentObject = new MiniDocument();
-    const surface = documentObject.createElement('div'); surface.className = 'str-chat'; documentObject.body.append(surface);
+    const surface = documentObject.createElement('div'); surface.className = 'str-chat str-chat__channel'; documentObject.body.append(surface);
     const button = documentObject.createElement('button'); button.className = 'JumpToPresentButton__Anchor'; surface.append(button);
     let clicks = 0;
     button['__reactProps$test'] = { onClick: () => { clicks += 1; } };
     const adapter = new StreamChatAdapter(surface, { documentObject });
     adapter.refresh({ settings: { keepUnread: false, showSeen: true, showTimestamps: true, compactReactions: true }, readGate: new ReadGate() });
+    assert.equal(clicks, 0);
+    assert.equal(adapter.jumpToPresent(), true);
+    assert.equal(clicks, 1);
+});
+
+test('Iteration 3 L1: Jump to present resolves the current VGen wrapper to its native button', () => {
+    const documentObject = new MiniDocument();
+    const surface = documentObject.createElement('div'); surface.className = 'str-chat str-chat__channel'; documentObject.body.append(surface);
+    const wrapper = documentObject.createElement('div'); wrapper.className = 'JumpToPresentButton__Container';
+    const button = documentObject.createElement('button'); wrapper.append(button); surface.append(wrapper);
+    surface['__reactProps$test'] = { channel: { cid: 'messaging:jump' } };
+    let clicks = 0;
+    button['__reactProps$test'] = { onClick: () => { clicks += 1; } };
+    const adapter = new StreamChatAdapter(surface, { documentObject });
+    adapter.refresh({ settings: { keepUnread: false, showSeen: true, showTimestamps: true, compactReactions: true }, readGate: new ReadGate() });
+    assert.equal(button.dataset.vgenNyaNativeLatest, 'true');
     assert.equal(clicks, 0);
     assert.equal(adapter.jumpToPresent(), true);
     assert.equal(clicks, 1);
@@ -281,6 +365,19 @@ test('Iteration 3 L1: Frequent Client avatar area uses the shared Chat.openUser 
     runtime.mount();
     assert.notEqual(runtime.panel, first);
     assert.equal(host.children.filter((node) => node.dataset.vgenNyaUi === 'frequent-clients').length, 1);
+    runtime.unmount();
+});
+
+test('Iteration 3 L2: Frequent Clients mounts against the current CreatorSidebar footer contract', () => {
+    const repo = repository({ [CONFIG_KEYS.clients]: [] });
+    const documentObject = new MiniDocument();
+    const sidebar = documentObject.createElement('div'); sidebar.className = 'CreatorSidebar__Container';
+    const footer = documentObject.createElement('div'); footer.className = 'CreatorSidebar__SidebarFooter';
+    sidebar.append(footer); documentObject.body.append(sidebar);
+    const runtime = new FrequentClientsRuntime({ repository: repo, chat: { openUser() {} }, documentObject, MutationObserverClass: null });
+    runtime.mount();
+    assert.equal(runtime.host, sidebar);
+    assert.equal(descendants(sidebar).filter((node) => node.dataset.vgenNyaUi === 'frequent-clients').length, 1);
     runtime.unmount();
 });
 

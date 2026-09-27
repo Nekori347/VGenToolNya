@@ -1,5 +1,6 @@
 const PROFILE_CACHE_MS = 6 * 60 * 60 * 1000;
-const SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
+const LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
+const MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
 const CLIENTS_CSS = `
 .vgen-nya-clients{margin:10px 8px;border:1px solid #6f8588;border-radius:10px;overflow:hidden;background:#13252bdd;color:#eef8f7;font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
@@ -28,7 +29,13 @@ export class FrequentClientsRuntime {
         this.documentObject = documentObject;
         this.MutationObserverClass = MutationObserverClass;
         this.fetchImpl = fetchImpl;
-        this.hostResolver = hostResolver || ((root) => root?.matches?.(SIDEBAR_SELECTOR) ? root : root?.querySelector?.(SIDEBAR_SELECTOR));
+        this.hostResolver = hostResolver || ((root) => {
+            const legacyFooter = root?.matches?.(LEGACY_FOOTER_SELECTOR) ? root : root?.querySelector?.(LEGACY_FOOTER_SELECTOR);
+            if (legacyFooter?.parentElement) return { parent: legacyFooter.parentElement, before: legacyFooter };
+            const modernSidebar = root?.matches?.(MODERN_SIDEBAR_SELECTOR) ? root : root?.querySelector?.(MODERN_SIDEBAR_SELECTOR);
+            const modernFooter = modernSidebar?.querySelector?.(':scope > .sidebarFooter');
+            return modernSidebar ? { parent: modernSidebar, before: modernFooter || null } : null;
+        });
         this.panel = null;
         this.host = null;
         this.observer = null;
@@ -76,8 +83,10 @@ export class FrequentClientsRuntime {
     }
 
     #mountIn(root) {
-        const host = this.hostResolver(root);
-        if (!host || this.panel) return false;
+        const mount = this.hostResolver(root);
+        if (!mount || this.panel) return false;
+        const host = mount.parent || mount;
+        const before = mount.before || null;
         this.host = host;
         this.panel = make(this.documentObject, 'section', 'vgen-nya-clients notranslate');
         this.panel.dataset.vgenNyaUi = 'frequent-clients';
@@ -87,7 +96,8 @@ export class FrequentClientsRuntime {
         this.panel.addEventListener('dragstart', this.#onDragStart);
         this.panel.addEventListener('dragover', this.#onDragOver);
         this.panel.addEventListener('drop', this.#onDrop);
-        host.append(this.panel);
+        if (before && typeof host.insertBefore === 'function') host.insertBefore(this.panel, before);
+        else host.append(this.panel);
         this.render();
         void this.refreshStale();
         return true;
