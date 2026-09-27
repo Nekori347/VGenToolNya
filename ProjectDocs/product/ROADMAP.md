@@ -32,7 +32,7 @@
 - STOP：artifact 引用 main/未审查 URL、版本不一致、迁移回归、私有研究或证据文件进入公开 staging。
 
 ## Iteration 2 — 快速 Tag 并入 Upload Assistant + 性能回归
-- Status：**PASS**（`UPLOAD-LIVE-01`、自动化回归与 release check 已通过；尚未 merge `main`）
+- Status：**MERGED / COMPLETE**（`UPLOAD-LIVE-01`、自动化回归与 release check 已通过；PR #1 已以 merge commit `a167a50` 合并到 `main`）
 - Goal：把快速 Tag 功能迁入 Upload Assistant，用 scoped observer + 生命周期替换整页扫描
 - Modules：Upload Assistant（组合/标题/描述/发现/搜索/界面）
 - Non-goals：不改数据语义
