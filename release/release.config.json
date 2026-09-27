@@ -1,0 +1,33 @@
+{
+  "name": "VGenToolNya",
+  "namespace": "https://vgen.co/",
+  "description": "VGen 创作者工具箱：统一设置、生命周期与安全的旧数据兼容基础。",
+  "author": "@Nekori_Net",
+  "license": "MIT",
+  "repository": {
+    "owner": "Nekori347",
+    "name": "VGenToolNya",
+    "visibility": "public",
+    "url": "https://github.com/Nekori347/VGenToolNya"
+  },
+  "match": [
+    "https://vgen.co/*"
+  ],
+  "grant": [
+    "GM_getValue",
+    "GM_setValue",
+    "GM_deleteValue",
+    "GM_setClipboard",
+    "GM_registerMenuCommand"
+  ],
+  "runAt": "document-idle",
+  "artifacts": {
+    "userscript": "VGenToolNya.user.js",
+    "metadata": "VGenToolNya.meta.js"
+  },
+  "stableChannel": {
+    "type": "github-release-assets",
+    "baseUrlEnvironmentVariable": "VGEN_NYA_RELEASE_BASE_URL",
+    "targetBaseUrl": "https://github.com/Nekori347/VGenToolNya/releases/latest/download"
+  }
+}

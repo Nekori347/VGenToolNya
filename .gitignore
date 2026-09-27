@@ -1,0 +1,48 @@
+# Dependencies and local package caches
+node_modules/
+.npm/
+
+# Temporary build and test state
+.tmp/
+tmp/
+temp/
+coverage/
+*.log
+*.tmp
+*.bak
+*.crdownload
+**/profile/
+**/browser-profile/
+**/test-profile/
+
+# Local/internal project material: default deny
+Research/
+evidence/
+staging/
+附件/
+
+# ProjectDocs public allowlist
+ProjectDocs/*
+!ProjectDocs/architecture/
+!ProjectDocs/development/
+!ProjectDocs/product/
+ProjectDocs/architecture/*
+!ProjectDocs/architecture/ARCHITECTURE.md
+!ProjectDocs/architecture/DECISIONS.md
+ProjectDocs/development/*
+!ProjectDocs/development/RELEASE.md
+ProjectDocs/product/*
+!ProjectDocs/product/ROADMAP.md
+!ProjectDocs/product/SPEC.md
+
+# OS and editor state
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# dist/ is intentionally tracked for reviewed release commits/tags.

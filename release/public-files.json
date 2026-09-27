@@ -1,0 +1,31 @@
+{
+  "allowedRoots": [
+    "dist/",
+    "migration/",
+    "release/",
+    "scripts/",
+    "src/",
+    "tests/"
+  ],
+  "allowedFiles": [
+    ".gitattributes",
+    ".gitignore",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "package-lock.json",
+    "package.json",
+    "ProjectDocs/architecture/ARCHITECTURE.md",
+    "ProjectDocs/architecture/DECISIONS.md",
+    "ProjectDocs/development/RELEASE.md",
+    "ProjectDocs/product/ROADMAP.md",
+    "ProjectDocs/product/SPEC.md"
+  ],
+  "forbiddenRoots": [
+    "Research/",
+    "evidence/",
+    "staging/",
+    "附件/",
+    "ProjectDocs/evidence/"
+  ]
+}

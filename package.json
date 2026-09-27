@@ -1,0 +1,22 @@
+{
+  "name": "vgen-tool-nya",
+  "version": "0.1.0",
+  "description": "VGen creator userscript toolbox",
+  "private": true,
+  "author": "@Nekori_Net",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:migration": "node scripts/build-migration-importer.mjs",
+    "test": "node --test --test-isolation=none",
+    "test:l1": "node --test --test-isolation=none tests/migration.test.js",
+    "test:l2": "node --test --test-isolation=none tests/lifecycle.test.js tests/settings-shell.test.js tests/performance.test.js",
+    "test:deployment-l2": "node --test --test-isolation=none tests/legacy-export.test.js tests/legacy-importer.test.js",
+    "release:check": "npm test && npm run build && node scripts/release-check.mjs",
+    "release:check:publish": "npm test && npm run build && node scripts/release-check.mjs --publish"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10"
+  }
+}
