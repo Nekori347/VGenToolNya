@@ -60,6 +60,7 @@ function openSettings() {
 
 function start() {
     GM_registerMenuCommand(`VGenToolNya ${APP_VERSION}：设置`, openSettings);
+    core.mountUploadAssistant();
 }
 
 start();

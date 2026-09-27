@@ -42,6 +42,13 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 - 跨旧 userscript 数据迁移必须通过经验证的 Bridge 或显式 Export/Import；写入新键后校验，旧脚本存储仍保留。
 - Bridge 与 Importer 的公开发布边界见 `ProjectDocs/development/RELEASE.md`。
 
+## Upload Assistant Runtime
+
+- body 仅观察直属 portal 增删，不使用 subtree；ReactModal 尚未填充时允许有停止条件的局部短期 probe。
+- Modal session 负责自己的 observer、listener、临时引用与订阅；Modal 离开即 unmount。
+- VGen Adapter 从已识别 DOM 控件向父 Fiber 有界查找；正常运行不得遍历 Fiber child/sibling 子树。
+- 日常 Upload preset 导入导出与 Legacy Migration envelope 是两个独立协议。
+
 ## 关键约束
 
 - Discovery/Search Tags 保持独立语义，不塞入文本预设模型。

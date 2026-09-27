@@ -26,6 +26,12 @@ export class MiniElement extends EventTarget {
         this.classList = new MiniClassList(this);
     }
 
+    get isConnected() {
+        let node = this;
+        while (node.parentElement) node = node.parentElement;
+        return node === this.ownerDocument.body;
+    }
+
     append(...nodes) {
         for (const node of nodes) {
             node.parentElement = this;
@@ -59,16 +65,37 @@ export class MiniElement extends EventTarget {
         return this.attributes.get(name) ?? null;
     }
 
+    matches(selector) {
+        return selector.split(',').some((part) => {
+            const value = part.trim();
+            if (value === '[role="dialog"]' || value === '[role=dialog]') return this.getAttribute('role') === 'dialog';
+            if (value === '[role="dialog"][aria-modal="true"]') return this.getAttribute('role') === 'dialog' && this.getAttribute('aria-modal') === 'true';
+            if (value.startsWith('.')) return this.classList.contains(value.slice(1).split('[')[0]);
+            const match = value.match(/^([a-z]+)(?:\[data-([a-z-]+)(?:="([^"]+)")?\])?$/i);
+            if (!match || this.tagName !== match[1].toUpperCase()) return false;
+            if (!match[2]) return true;
+            const key = match[2].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+            return match[3] === undefined ? key in this.dataset : this.dataset[key] === match[3];
+        });
+    }
+
+    querySelectorAll(selector) {
+        return descendants(this).filter((element) => element.matches(selector));
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] || null;
+    }
+
     contains(candidate) {
         if (candidate === this) return true;
         return this.children.some((child) => child.contains(candidate));
     }
 
     closest(selector) {
-        if (selector !== 'button[data-action]') return null;
         let current = this;
         while (current) {
-            if (current.tagName === 'BUTTON' && current.dataset.action) return current;
+            if (current.matches(selector)) return current;
             current = current.parentElement;
         }
         return null;
@@ -96,6 +123,16 @@ export class MiniDocument {
 
     createElement(tagName) {
         return new MiniElement(this, tagName);
+    }
+
+    createTextNode(text) {
+        const node = this.createElement('#text');
+        node.textContent = String(text);
+        return node;
+    }
+
+    querySelectorAll(selector) {
+        return [this.body, ...descendants(this.body)].filter((element) => element.matches(selector));
     }
 
     getElementById(id) {

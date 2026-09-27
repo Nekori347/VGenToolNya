@@ -17,6 +17,9 @@ const SHELL_CSS = `
 .vgen-nya-settings__section { border: 1px solid #e1e1e1; border-radius: 9px; margin-bottom: 10px; overflow: hidden; }
 .vgen-nya-settings__section-toggle { display: flex; justify-content: space-between; width: 100%; padding: 11px 13px; border: 0; background: #fafafa; cursor: pointer; font-weight: 650; }
 .vgen-nya-settings__section-body { padding: 12px 13px; color: #666; }
+.vgen-nya-settings__preset-row { display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee; }
+.vgen-nya-settings__check { display:block;margin:7px 0; }
+.vgen-nya-settings__toolbar { margin-bottom:8px; }
 @media (max-width: 680px) { .vgen-nya-settings { grid-template-columns: 1fr; } .vgen-nya-settings__nav { border-right: 0; border-bottom: 1px solid #e4e5e7; } }
 `;
 
@@ -43,6 +46,11 @@ export function createSettingsShell({ navigation = SETTINGS_NAVIGATION } = {}) {
     let activeNavigation = navigation[0]?.id || '';
     const activeTabByNavigation = new Map();
     const expandedSections = new Set();
+    let renderCleanups = [];
+
+    function cleanupRenderedSections() {
+        for (const cleanup of renderCleanups.splice(0).reverse()) cleanup();
+    }
 
     const findNavigation = (id) => navigation.find((item) => item.id === id);
     const currentNavigation = () => findNavigation(activeNavigation) || navigation[0];
@@ -66,6 +74,7 @@ export function createSettingsShell({ navigation = SETTINGS_NAVIGATION } = {}) {
     }
 
     function renderContent(documentObject) {
+        cleanupRenderedSections();
         const navigationItem = currentNavigation();
         const tab = currentTab();
         heading.textContent = navigationItem.label;
@@ -99,6 +108,14 @@ export function createSettingsShell({ navigation = SETTINGS_NAVIGATION } = {}) {
             );
             const body = element(documentObject, 'div', { className: 'vgen-nya-settings__section-body' }, section.description);
             body.hidden = !expanded;
+            if (expanded && typeof section.render === 'function') {
+                body.textContent = '';
+                section.render({
+                    documentObject,
+                    body,
+                    use(cleanup) { if (typeof cleanup === 'function') renderCleanups.push(cleanup); },
+                });
+            }
             wrapper.append(toggle, body);
             panel.append(wrapper);
         }
@@ -168,6 +185,7 @@ export function createSettingsShell({ navigation = SETTINGS_NAVIGATION } = {}) {
             root?.setAttribute('data-state', 'active');
         },
         unmount() {
+            cleanupRenderedSections();
             root?.setAttribute('data-state', 'unmounting');
         },
         dispose() {
@@ -178,6 +196,7 @@ export function createSettingsShell({ navigation = SETTINGS_NAVIGATION } = {}) {
             panelsContainer = null;
             activeTabByNavigation.clear();
             expandedSections.clear();
+            cleanupRenderedSections();
         },
         selectNavigation,
         selectTab,

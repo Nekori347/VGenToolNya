@@ -31,12 +31,12 @@ test('L2: settings shell mounts with primary navigation, tabs and collapsible se
     shell.selectNavigation('upload');
     const tabButtons = buttons(shell.element).filter((button) => button.dataset.action === 'tab');
     assert.deepEqual(tabButtons.map((button) => button.textContent), [
-        '组合预设', '标题', '描述', '发现标签', '搜索标签', '界面设置',
+        '组合预设', '标题 / 描述', '发现标签', '搜索标签', '界面设置',
     ]);
-    assert.equal(new Set(tabButtons.map((button) => button.textContent)).size, 6);
+    assert.equal(new Set(tabButtons.map((button) => button.textContent)).size, 5);
 
-    shell.selectTab('description');
-    assert.equal(shell.toggleSection('upload:description:planned'), true);
+    shell.selectTab('text');
+    assert.equal(shell.toggleSection('upload:text:planned'), true);
     const sectionBody = descendants(shell.element).find((node) => node.className === 'vgen-nya-settings__section-body');
     assert.equal(sectionBody.hidden, false);
 });
@@ -71,7 +71,7 @@ test('L2: unmount/remount removes the old root and its listener before creating 
 test('L2: preset semantics remain separate in the shell information model', () => {
     const upload = SETTINGS_NAVIGATION.find((item) => item.id === 'upload');
     const ids = upload.tabs.map((tab) => tab.id);
-    assert.deepEqual(ids.slice(0, 5), ['combination', 'title', 'description', 'discovery', 'search-tags']);
+    assert.deepEqual(ids, ['combination', 'text', 'discovery', 'search-tags', 'interface']);
     assert.equal(new Set(ids).size, ids.length);
 });
 
