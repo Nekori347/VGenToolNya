@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
@@ -15,6 +15,7 @@ const servedFiles = new Map([
     ['/importer.user.js', 'migration/importer/VGenToolNya-Legacy-Importer.user.js'],
     ['/conflict-seeder.user.js', 'tests/fixtures/tampermonkey/VGenToolNya-Conflict-Seeder.user.js'],
     ['/recovery-seeder.user.js', 'tests/fixtures/tampermonkey/VGenToolNya-Recovery-Seeder.user.js'],
+    ['/VGenToolNya.user.js', 'dist/VGenToolNya.user.js'],
 ]);
 
 class CDPClient {
@@ -85,7 +86,12 @@ async function evaluate(target, expression) {
             returnByValue: true,
             userGesture: true,
         });
-        if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || 'Evaluation failed');
+        if (result.exceptionDetails) {
+            throw new Error(result.exceptionDetails.exception?.description
+                || result.exceptionDetails.exception?.value
+                || result.exceptionDetails.text
+                || 'Evaluation failed');
+        }
         return result.result.value;
     } finally {
         client.close();
@@ -288,22 +294,35 @@ async function enableTampermonkeyUserScripts(extensionId) {
     }
 }
 
-async function launchIsolatedProfile({ scenario, port, testRoot, chromePath, extensionPath }) {
+async function launchIsolatedProfile({
+    scenario,
+    port,
+    testRoot,
+    chromePath,
+    extensionPath,
+    visible = false,
+    reusable = false,
+}) {
     const scenarioRoot = path.join(testRoot, scenario);
     const profile = path.join(scenarioRoot, 'profile');
     const downloads = path.join(scenarioRoot, 'downloads');
     const defaultProfile = path.join(profile, 'Default');
     await mkdir(defaultProfile, { recursive: true });
     await mkdir(downloads, { recursive: true });
-    await writeFile(path.join(defaultProfile, 'Preferences'), JSON.stringify({
-        download: {
-            default_directory: downloads,
-            directory_upgrade: true,
-            prompt_for_download: false,
-        },
-        safebrowsing: { enabled: true },
-    }), 'utf8');
-    const child = spawn(chromePath, [
+    const preferencesPath = path.join(defaultProfile, 'Preferences');
+    let hasPreferences = true;
+    try { await access(preferencesPath); } catch { hasPreferences = false; }
+    if (!hasPreferences) {
+        await writeFile(preferencesPath, JSON.stringify({
+            download: {
+                default_directory: downloads,
+                directory_upgrade: true,
+                prompt_for_download: false,
+            },
+            safebrowsing: { enabled: true },
+        }), 'utf8');
+    }
+    const chromeArguments = [
         `--user-data-dir=${profile}`,
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
@@ -312,10 +331,12 @@ async function launchIsolatedProfile({ scenario, port, testRoot, chromePath, ext
         '--no-default-browser-check',
         '--disable-sync',
         '--lang=en-US',
-        '--window-position=-32000,-32000',
         '--window-size=900,700',
         'about:blank',
-    ], { stdio: 'ignore' });
+    ];
+    if (!visible) chromeArguments.splice(-2, 0, '--window-position=-32000,-32000');
+    const child = spawn(chromePath, chromeArguments, { stdio: 'ignore', detached: reusable });
+    if (reusable) child.unref();
     cdpBase = `http://127.0.0.1:${port}`;
     const startedAt = Date.now();
     let lastError;
@@ -329,7 +350,7 @@ async function launchIsolatedProfile({ scenario, port, testRoot, chromePath, ext
             await waitForTarget((target) => target.type === 'service_worker' && target.url.includes(extensionId));
             await enableTampermonkeyUserScripts(extensionId);
             await new Promise((resolve) => setTimeout(resolve, 2_000));
-            return { child, scenarioRoot, downloads };
+            return { child, scenarioRoot, profile, downloads };
         } catch (error) {
             lastError = error;
             await new Promise((resolve) => setTimeout(resolve, 200));
@@ -337,6 +358,690 @@ async function launchIsolatedProfile({ scenario, port, testRoot, chromePath, ext
     }
     child.kill();
     throw new Error(`Chrome/Tampermonkey did not start for ${scenario}: ${lastError?.message || 'unknown error'}`);
+}
+
+async function bringToFront(target) {
+    const client = await new CDPClient(target.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Page.bringToFront');
+    } finally {
+        client.close();
+    }
+}
+
+async function showUploadLiveWindow() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    if (!page) throw new Error('The VGen live-test page is not open');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        const { windowId } = await client.send('Browser.getWindowForTarget', { targetId: page.id });
+        await client.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
+        await client.send('Browser.setWindowBounds', {
+            windowId,
+            bounds: { left: 80, top: 80, width: 1200, height: 850 },
+        });
+        await client.send('Page.bringToFront');
+        process.stdout.write(`${JSON.stringify({ shown: true, windowId, page: page.url }, null, 2)}\n`);
+    } finally {
+        client.close();
+    }
+}
+
+async function probeUploadLivePage() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator'))
+        || (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    if (!page) throw new Error('The VGen live-test page is not open');
+    const details = await evaluate(page, `(() => ({
+        url: location.href,
+        title: document.title,
+        readyState: document.readyState,
+        loggedIn: !location.pathname.startsWith('/login'),
+        uploadAssistantCount: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+        dialogs: [...document.querySelectorAll('[role="dialog"], .ReactModal__Content')].map((node) => ({
+            text: (node.innerText || '').slice(0, 1200),
+            ariaModal: node.getAttribute('aria-modal'),
+        })),
+        buttons: [...document.querySelectorAll('button, a')].map((node) => ({
+            tag: node.tagName,
+            text: (node.innerText || node.getAttribute('aria-label') || node.title || '').trim().slice(0, 160),
+            href: node.href || '',
+            ariaLabel: node.getAttribute('aria-label') || '',
+        })).filter((item) => item.text || item.href).slice(0, 300),
+        bodyText: (document.body?.innerText || '').slice(0, 5000),
+    }))()`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function navigateUploadLiveCreator() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    if (!page) throw new Error('The VGen live-test page is not open');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Page.enable');
+        await client.send('Page.navigate', { url: 'https://vgen.co/creator' });
+        await new Promise((resolve) => setTimeout(resolve, 4_000));
+        await client.send('Page.bringToFront');
+    } finally {
+        client.close();
+    }
+    process.stdout.write(`${JSON.stringify({ navigated: true, page: 'https://vgen.co/creator' }, null, 2)}\n`);
+}
+
+async function navigateUploadLivePortfolio() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    if (!page) throw new Error('The VGen live-test page is not open');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Page.enable');
+        await client.send('Page.navigate', { url: 'https://vgen.co/creator/portfolio' });
+        await new Promise((resolve) => setTimeout(resolve, 4_000));
+        await client.send('Page.bringToFront');
+    } finally {
+        client.close();
+    }
+    process.stdout.write(`${JSON.stringify({ navigated: true, page: 'https://vgen.co/creator/portfolio' }, null, 2)}\n`);
+}
+
+async function navigateUploadLiveServices() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    if (!page) throw new Error('The VGen live-test page is not open');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Page.enable');
+        await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await client.send('Page.navigate', { url: 'https://vgen.co/creator/commissions/services' });
+        await new Promise((resolve) => setTimeout(resolve, 4_000));
+        await client.send('Page.bringToFront');
+    } finally { client.close(); }
+    const details = await evaluate(page, `({ url: location.href, title: document.title, text: document.body.innerText.slice(0, 3000),
+        buttons: [...document.querySelectorAll('button,a')].filter((node) => { const rect = node.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; })
+            .map((node) => ({ tag: node.tagName, text: (node.innerText || node.textContent || '').trim().slice(0, 200), href: node.href || '' })).filter((item) => item.text) })`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function exerciseUploadLiveServiceBlacklist() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/commissions/services'));
+    if (!page) throw new Error('The VGen services page is not open');
+    const clicked = await evaluate(page, `(() => {
+        const button = [...document.querySelectorAll('button')].find((node) => { const rect = node.getBoundingClientRect();
+            return node.textContent.trim() === 'Service' && rect.width > 0 && rect.height > 0; });
+        button?.click(); return Boolean(button);
+    })()`);
+    if (!clicked) throw new Error('Safe new-service button is unavailable');
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const result = await evaluate(page, `(() => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        return { modal: Boolean(modal), text: (modal?.innerText || '').slice(0, 1800),
+            assistantCount: modal?.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length || 0,
+            tagInputs: [...(modal?.querySelectorAll('input') || [])].filter((node) => /tag/i.test(node.placeholder || '')).map((node) => node.placeholder) };
+    })()`);
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    } finally { client.close(); }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    result.afterCloseAssistantCount = await evaluate(page, `document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function measureUploadLiveCleanup() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    let beforeMetrics;
+    try {
+        await client.send('Performance.enable');
+        await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+        await waitForExpression(page, `document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length === 0`, 5_000);
+        beforeMetrics = await client.send('Performance.getMetrics');
+        const mutations = evaluate(page, `(async () => {
+            let total = 0; let assistantRelated = 0;
+            const observer = new MutationObserver((records) => { total += records.length;
+                for (const record of records) for (const node of [...record.addedNodes, ...record.removedNodes]) {
+                    if (node.nodeType === 1 && (node.matches?.('[data-vgen-nya-ui="upload-assistant"]') || node.querySelector?.('[data-vgen-nya-ui="upload-assistant"]'))) assistantRelated += 1;
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+            await new Promise((resolve) => setTimeout(resolve, 5_000)); observer.disconnect();
+            return { total, assistantRelated, assistants: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+                dialogs: document.querySelectorAll('[role="dialog"], .ReactModal__Content').length };
+        })()`);
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        const afterMetrics = await client.send('Performance.getMetrics');
+        const metric = (set, name) => set.metrics.find((item) => item.name === name)?.value || 0;
+        const result = { mutations: await mutations, sampleSeconds: 5,
+            taskDurationDeltaMs: Number(((metric(afterMetrics, 'TaskDuration') - metric(beforeMetrics, 'TaskDuration')) * 1000).toFixed(3)),
+            scriptDurationDeltaMs: Number(((metric(afterMetrics, 'ScriptDuration') - metric(beforeMetrics, 'ScriptDuration')) * 1000).toFixed(3)),
+            jsEventListeners: metric(afterMetrics, 'JSEventListeners'), nodes: metric(afterMetrics, 'Nodes') };
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } finally { client.close(); }
+}
+
+async function openUploadLiveModal() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const clicked = await evaluate(page, `(() => {
+        const button = [...document.querySelectorAll('button')].filter((node) => {
+            const rect = node.getBoundingClientRect();
+            return node.textContent.trim() === 'New' && rect.width > 0 && rect.height > 0;
+        }).at(-1);
+        if (!button) return false;
+        button.click();
+        return true;
+    })()`);
+    if (!clicked) throw new Error('Visible Portfolio New button was not found');
+    const dialogText = await waitForExpression(page, `(() => {
+        const dialog = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        return dialog ? (dialog.innerText || '').slice(0, 1600) : '';
+    })()`, 15_000);
+    process.stdout.write(`${JSON.stringify({ opened: true, dialogText }, null, 2)}\n`);
+}
+
+async function inspectUploadLiveModal() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const details = await evaluate(page, `(() => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        if (!modal) return { found: false };
+        const describe = (node) => ({
+            tag: node.tagName,
+            type: node.type || '',
+            value: node.value || '',
+            text: (node.innerText || node.textContent || '').trim().slice(0, 240),
+            placeholder: node.getAttribute('placeholder') || '',
+            ariaLabel: node.getAttribute('aria-label') || '',
+            ariaExpanded: node.getAttribute('aria-expanded'),
+            contenteditable: node.getAttribute('contenteditable'),
+            slate: node.getAttribute('data-slate-editor'),
+            className: String(node.className || '').slice(0, 240),
+        });
+        return {
+            found: true,
+            inputs: [...modal.querySelectorAll('input, textarea, [contenteditable="true"], [data-slate-editor="true"]')].map(describe),
+            buttons: [...modal.querySelectorAll('button, [role="button"]')].map(describe),
+            assistant: [...modal.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]')].map(describe),
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function inspectUploadLiveReactState() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const details = await evaluate(page, `(() => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        if (!modal) return { found: false };
+        const own = (element, prefix) => {
+            const key = element ? Object.getOwnPropertyNames(element).find((name) => name.startsWith(prefix)) : null;
+            return key ? element[key] : null;
+        };
+        const propsAlong = (element, callback) => {
+            let node = element;
+            for (let nodeDepth = 0; node && nodeDepth < 7; nodeDepth += 1, node = node.parentElement) {
+                let fiber = own(node, '__reactFiber$') || own(node, '__reactInternalInstance$');
+                for (let depth = 0; fiber && depth < 80; depth += 1, fiber = fiber.return) {
+                    for (const candidate of [fiber, fiber.alternate].filter(Boolean)) {
+                        for (const props of [candidate.memoizedProps, candidate.pendingProps]) {
+                            const result = callback(props, candidate);
+                            if (result) return result;
+                        }
+                    }
+                }
+            }
+            return null;
+        };
+        const tagInput = [...modal.querySelectorAll('input')].find((node) => /add tags/i.test(node.placeholder || ''));
+        const tagBridge = propsAlong(tagInput, (props, fiber) => Array.isArray(props?.initialTags) && typeof props?.onChange === 'function'
+            ? { props, fiber } : null);
+        let store = null;
+        for (let fiber = tagBridge?.fiber, depth = 0; fiber && depth < 120 && !store; depth += 1, fiber = fiber.return) {
+            const values = [fiber.memoizedProps, fiber.pendingProps, fiber.memoizedState, fiber.stateNode];
+            let dependency = fiber.dependencies?.firstContext;
+            for (let index = 0; dependency && index < 20; index += 1, dependency = dependency.next) values.push(dependency.memoizedValue);
+            for (const value of values) {
+                store = [value, value?.store, value?.value, value?.value?.store, value?.contextValue, value?.contextValue?.store]
+                    .find((item) => typeof item?.getState === 'function' && typeof item?.dispatch === 'function') || null;
+                if (store) break;
+            }
+        }
+        const state = store?.getState?.();
+        const showcase = [state?.showcase, state?.showcaseReducer, ...Object.values(state || {})]
+            .find((slice) => typeof slice?.body?.title === 'string' && Array.isArray(slice?.body?.tags));
+        const discovery = [];
+        let formValues = null;
+        for (const input of modal.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
+            propsAlong(input, (props) => {
+                if (!formValues && props?.formValues && typeof props?.onFormValueChange === 'function') formValues = structuredClone(props.formValues);
+                const option = props?.option;
+                if (option?.optionID && Array.isArray(option?.variants) && !discovery.some((item) => item.optionID === option.optionID)) {
+                    discovery.push(structuredClone(option));
+                }
+                return null;
+            });
+        }
+        return {
+            found: true,
+            titleInput: modal.querySelector('input[placeholder="New Showcase"]')?.value || '',
+            tagBridge: tagBridge ? { initialTags: structuredClone(tagBridge.props.initialTags), tagLimit: tagBridge.props.tagLimit } : null,
+            showcaseBody: showcase ? { title: showcase.body.title, description: showcase.body.description,
+                tags: structuredClone(showcase.body.tags), searchCategoryVariantKeys: structuredClone(showcase.body.searchCategoryVariantKeys) } : null,
+            discoverySchema: discovery,
+            discoveryFormValues: formValues,
+            assistantCount: modal.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function seedUploadLivePresetsThroughSettings() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const result = await evaluate(page, `(async () => {
+        const overlay = document.querySelector('#vgen-nya-settings-overlay');
+        if (!overlay) return { ok: false, error: 'settings overlay is not open' };
+        const schema = [
+            { optionID: 'rec2iZNMJUy3VOvam', allowMultipleSelections: false, label: 'Style', variants: [{ variantID: 'recBIGfqTGGviAdex', label: 'Anime / Manga', value: 'recBIGfqTGGviAdex' }] },
+            { optionID: 'rec0pgNAc2edoPvYK', allowMultipleSelections: false, label: 'Technique', variants: [{ variantID: 'recdH6XTbwThQz80x', label: 'Illustrated', value: 'recdH6XTbwThQz80x' }] },
+            { optionID: 'recjVUmanBktraQqb', allowMultipleSelections: false, label: 'Vibe', variants: [{ variantID: 'recS2LTvkABxBVfzk', label: 'Chill / Cozy', value: 'recS2LTvkABxBVfzk' }] },
+        ];
+        const discoveryValues = {
+            rec2iZNMJUy3VOvam: 'recBIGfqTGGviAdex',
+            rec0pgNAc2edoPvYK: 'recdH6XTbwThQz80x',
+            recjVUmanBktraQqb: 'recS2LTvkABxBVfzk',
+        };
+        const slate = '[{"type":"paragraph","children":[{"text":"VGenToolNya live validation. Do not submit."}]}]';
+        const domains = [
+            ['combination', 'combination', [{ id: 'live-combination', name: 'LIVE Combination - DO NOT SUBMIT',
+                title: 'VGenToolNya LIVE TEST - DO NOT SUBMIT', description: slate,
+                discoverySchema: schema, discoveryValues, tags: ['vgen tool nya test', 'do not submit'] }]],
+            ['text', 'title', [{ id: 'live-title', name: 'LIVE Title - DO NOT SUBMIT', value: 'VGenToolNya LIVE TEST - DO NOT SUBMIT' }]],
+            ['text', 'description', [{ id: 'live-description', name: 'LIVE Description - DO NOT SUBMIT', value: slate }]],
+            ['discovery', 'discovery', [{ id: 'live-discovery', name: 'LIVE Discovery - DO NOT SUBMIT', schema, values: discoveryValues }]],
+            ['search-tags', 'search-tags', [{ id: 'live-tags', name: 'LIVE TEST', tags: [
+                { tag: 'vgen tool nya test', note: 'live validation' },
+                { tag: 'do not submit', note: 'test only' },
+            ] }]],
+        ];
+        const nav = overlay.querySelector('button[data-action="navigation"][data-id="upload"]');
+        nav?.click();
+        const saved = [];
+        for (const [tabId, sectionId, value] of domains) {
+            overlay.querySelector('button[data-action="tab"][data-id="' + tabId + '"]')?.click();
+            const sectionKey = 'upload:' + tabId + ':' + sectionId;
+            let toggle = overlay.querySelector('button[data-action="section"][data-id="' + sectionKey + '"]');
+            if (!toggle) throw new Error('Missing settings section ' + sectionKey);
+            if (toggle.getAttribute('aria-expanded') !== 'true') {
+                toggle.click();
+                toggle = overlay.querySelector('button[data-action="section"][data-id="' + sectionKey + '"]');
+            }
+            const body = toggle.closest('section')?.querySelector('.vgen-nya-settings__section-body');
+            const textarea = body?.querySelector('textarea[data-role="json"]');
+            const save = body?.querySelector('button[data-action="save-json"]');
+            if (!textarea || !save) throw new Error('Missing JSON editor for ' + sectionKey);
+            textarea.value = JSON.stringify(value, null, 2);
+            save.click();
+            saved.push(sectionKey);
+        }
+        const close = [...overlay.querySelectorAll('button')].find((node) => node.textContent.trim() === '关闭');
+        close?.click();
+        const assistant = document.querySelector('[data-vgen-nya-ui="upload-assistant"]');
+        return {
+            ok: true,
+            saved,
+            settingsClosed: !document.querySelector('#vgen-nya-settings-overlay'),
+            assistantCount: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            selectOptions: [...assistant.querySelectorAll('select[data-kind]')].map((select) => ({ kind: select.dataset.kind, count: select.options.length })),
+            quickTags: [...assistant.querySelectorAll('button[data-action="tag"]')].map((button) => button.dataset.tag),
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function exerciseUploadLiveRefresh() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const result = await evaluate(page, `(async () => {
+        const pause = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
+        let root = document.querySelector('[data-vgen-nya-ui="upload-assistant"]');
+        const overlay = document.querySelector('#vgen-nya-settings-overlay');
+        if (!root || !overlay) throw new Error('Assistant/settings overlay unavailable');
+        root.dataset.liveRefreshIdentity = 'preserved';
+        overlay.querySelector('button[data-action="navigation"][data-id="upload"]')?.click();
+        overlay.querySelector('button[data-action="tab"][data-id="text"]')?.click();
+        const key = 'upload:text:title';
+        let toggle = overlay.querySelector('button[data-action="section"][data-id="' + key + '"]');
+        if (toggle.getAttribute('aria-expanded') !== 'true') { toggle.click(); toggle = overlay.querySelector('button[data-action="section"][data-id="' + key + '"]'); }
+        const body = toggle.closest('section')?.querySelector('.vgen-nya-settings__section-body');
+        const textarea = body?.querySelector('textarea[data-role="json"]');
+        const save = body?.querySelector('button[data-action="save-json"]');
+        textarea.value = JSON.stringify([{ id: 'live-title', name: 'LIVE Title Refreshed - DO NOT SUBMIT', value: 'VGenToolNya LIVE TEST REFRESHED - DO NOT SUBMIT' }], null, 2);
+        save.click(); await pause();
+        [...overlay.querySelectorAll('button')].find((node) => node.textContent.trim() === '关闭')?.click(); await pause();
+        root = document.querySelector('[data-vgen-nya-ui="upload-assistant"]');
+        const beforeRefresh = { assistants: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            identity: root?.dataset.liveRefreshIdentity, titleOption: root?.querySelector('select[data-kind="title"] option:last-child')?.textContent,
+            quickTags: root?.querySelectorAll('button[data-action="tag"]').length, url: location.href };
+        root?.querySelector('button[data-action="refresh"]')?.click(); await pause(500);
+        root = document.querySelector('[data-vgen-nya-ui="upload-assistant"]');
+        const afterRefresh = { assistants: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            identity: root?.dataset.liveRefreshIdentity, titleOption: root?.querySelector('select[data-kind="title"] option:last-child')?.textContent,
+            quickTags: root?.querySelectorAll('button[data-action="tag"]').length, url: location.href };
+        return { beforeRefresh, afterRefresh };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function cycleUploadLiveModal() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    const cycles = [];
+    try {
+        await client.send('Input.enable').catch(() => {});
+        for (let index = 0; index < 3; index += 1) {
+            const before = await evaluate(page, `(() => {
+                const roots = [...document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]')];
+                roots.forEach((root) => { root.dataset.liveInstanceProbe = 'cycle-${index}-before'; });
+                return { dialogs: document.querySelectorAll('[role="dialog"], .ReactModal__Content').length,
+                    assistants: roots.length };
+            })()`);
+            await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+            await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+            await waitForExpression(page, `!document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]')`, 5_000);
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            const closed = await evaluate(page, `({
+                dialogs: document.querySelectorAll('[role="dialog"], .ReactModal__Content').length,
+                assistants: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+                stale: document.querySelectorAll('[data-live-instance-probe]').length,
+            })`);
+            const clicked = await evaluate(page, `(() => {
+                const button = [...document.querySelectorAll('button')].filter((node) => {
+                    const rect = node.getBoundingClientRect();
+                    return node.textContent.trim() === 'New' && rect.width > 0 && rect.height > 0;
+                }).at(-1);
+                button?.click(); return Boolean(button);
+            })()`);
+            if (!clicked) throw new Error('Visible Portfolio New button was not found');
+            await waitForExpression(page, `document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length === 1`, 8_000);
+            const reopened = await evaluate(page, `({
+                dialogs: document.querySelectorAll('[role="dialog"], .ReactModal__Content').length,
+                assistants: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+                stale: document.querySelectorAll('[data-live-instance-probe]').length,
+                quickTags: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"] button[data-action="tag"]').length,
+            })`);
+            cycles.push({ cycle: index + 1, before, closed, reopened });
+        }
+    } finally {
+        client.close();
+    }
+    process.stdout.write(`${JSON.stringify({ cycles }, null, 2)}\n`);
+}
+
+async function exerciseUploadLiveCore() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const result = await evaluate(page, `(async () => {
+        const pause = (ms = 250) => new Promise((resolve) => setTimeout(resolve, ms));
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        const root = modal?.querySelector('[data-vgen-nya-ui="upload-assistant"]');
+        if (!modal || !root) throw new Error('Upload modal/assistant is unavailable');
+        const own = (element, prefix) => {
+            const key = element ? Object.getOwnPropertyNames(element).find((name) => name.startsWith(prefix)) : null;
+            return key ? element[key] : null;
+        };
+        const propsAlong = (element, callback) => {
+            let node = element;
+            for (let nodeDepth = 0; node && nodeDepth < 7; nodeDepth += 1, node = node.parentElement) {
+                let fiber = own(node, '__reactFiber$') || own(node, '__reactInternalInstance$');
+                for (let depth = 0; fiber && depth < 120; depth += 1, fiber = fiber.return) {
+                    for (const candidate of [fiber, fiber.alternate].filter(Boolean)) {
+                        for (const props of [candidate.memoizedProps, candidate.pendingProps]) {
+                            const found = callback(props, candidate);
+                            if (found) return found;
+                        }
+                    }
+                }
+            }
+            return null;
+        };
+        const tagInput = [...modal.querySelectorAll('input')].find((node) => /add tags/i.test(node.placeholder || ''));
+        const tagBridge = () => propsAlong(tagInput, (props, fiber) => Array.isArray(props?.initialTags) && typeof props?.onChange === 'function' ? { props, fiber } : null);
+        const store = (() => {
+            for (let fiber = tagBridge()?.fiber, depth = 0; fiber && depth < 120; depth += 1, fiber = fiber.return) {
+                const values = [fiber.memoizedProps, fiber.pendingProps, fiber.memoizedState, fiber.stateNode];
+                let dependency = fiber.dependencies?.firstContext;
+                for (let i = 0; dependency && i < 20; i += 1, dependency = dependency.next) values.push(dependency.memoizedValue);
+                for (const value of values) {
+                    const found = [value, value?.store, value?.value, value?.value?.store, value?.contextValue, value?.contextValue?.store]
+                        .find((item) => typeof item?.getState === 'function' && typeof item?.dispatch === 'function');
+                    if (found) return found;
+                }
+            }
+            return null;
+        })();
+        const body = () => {
+            const state = store?.getState?.();
+            return [state?.showcase?.body, state?.showcaseReducer?.body, ...Object.values(state || {}).map((slice) => slice?.body)]
+                .find((candidate) => typeof candidate?.title === 'string' && Array.isArray(candidate?.tags));
+        };
+        const snapshot = () => ({
+            titleInput: modal.querySelector('input[placeholder="New Showcase"]')?.value || '',
+            titleState: body()?.title,
+            descriptionState: body()?.description,
+            tags: structuredClone(body()?.tags || tagBridge()?.props?.initialTags || []),
+            discoveryState: structuredClone(body()?.searchCategoryVariantKeys || []),
+            checkedDiscovery: [...modal.querySelectorAll('input[type="radio"]:checked')].map((node) => node.value),
+            checkedDiscoveryHidden: [...modal.querySelectorAll('input[type="radio"]:checked')].map((node) => node.closest('[aria-hidden]')?.getAttribute('aria-hidden') ?? null),
+            assistantCount: modal.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            header: root.querySelector('header')?.innerText || root.innerText.split('\\n')[0],
+            pressed: [...root.querySelectorAll('button[data-action="tag"]')].filter((node) => node.getAttribute('aria-pressed') === 'true').map((node) => node.dataset.tag),
+        });
+        const choose = async (kind) => {
+            const select = root.querySelector('select[data-kind="' + kind + '"]');
+            select.selectedIndex = 1;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            await pause(500);
+            return snapshot();
+        };
+        const titleApplied = await choose('title');
+        const titleInput = modal.querySelector('input[placeholder="New Showcase"]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(titleInput, 'VGenToolNya MANUAL EDIT - DO NOT SUBMIT');
+        titleInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'x' }));
+        titleInput.dispatchEvent(new Event('change', { bubbles: true }));
+        titleInput.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+        await pause(700);
+        const titleManual = snapshot();
+        const descriptionApplied = await choose('description');
+        const discoveryApplied = await choose('discovery');
+        const tagsInitial = snapshot();
+        root.querySelector('button[data-action="tag"]')?.click();
+        await pause(600);
+        const tagOneAdded = snapshot();
+        await tagBridge().props.onChange([]);
+        await pause(600);
+        const tagNativeRemoved = snapshot();
+        [...root.querySelectorAll('button')].find((node) => node.textContent.trim() === '全部添加')?.click();
+        await pause(600);
+        const tagsAllAdded = snapshot();
+        [...root.querySelectorAll('button')].find((node) => node.textContent.trim() === '全部删除')?.click();
+        await pause(600);
+        const tagsAllRemoved = snapshot();
+        const group = root.querySelector('details');
+        const groupBefore = group?.open;
+        group?.querySelector('summary')?.click();
+        await pause(200);
+        const groupAfter = group?.open;
+        if (group && !group.open) group.querySelector('summary')?.click();
+        const combinationApplied = await choose('combination');
+        return { titleApplied, titleManual, descriptionApplied, discoveryApplied, tagsInitial, tagOneAdded, tagNativeRemoved,
+            tagsAllAdded, tagsAllRemoved, groupCollapse: { before: groupBefore, after: groupAfter }, combinationApplied,
+            assistantClass: root.className, translate: root.getAttribute('translate') };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function attachUploadLiveTestImage() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const result = await evaluate(page, `(async () => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        const input = [...(modal?.querySelectorAll('input[type="file"]') || [])].find((node) => {
+            const accept = node.accept || ''; return !accept || /image|png|jpeg|jpg|webp/i.test(accept);
+        });
+        if (!input) return { attached: false, error: 'image file input unavailable' };
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#f0b7d5'; context.fillRect(0, 0, 64, 64);
+        context.fillStyle = '#3d1630'; context.fillRect(8, 8, 48, 48);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+        const transfer = new DataTransfer();
+        transfer.items.add(new File([blob], 'vgen-tool-nya-live-test-do-not-submit.png', { type: 'image/png', lastModified: Date.now() }));
+        input.files = transfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return { attached: true, accept: input.accept, count: input.files.length, name: input.files[0].name };
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    const after = await evaluate(page, `(() => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        return { editorCount: modal?.querySelectorAll('.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"]').length || 0,
+            text: (modal?.innerText || '').slice(0, 1200), images: modal?.querySelectorAll('img').length || 0 };
+    })()`);
+    process.stdout.write(`${JSON.stringify({ result, after }, null, 2)}\n`);
+}
+
+async function inspectUploadLiveShadowDom() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const result = await evaluate(page, `(() => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        const queue = [modal]; const roots = []; const matches = [];
+        while (queue.length) {
+            const root = queue.shift();
+            for (const node of root?.querySelectorAll?.('*') || []) {
+                if (node.shadowRoot) { roots.push({ tag: node.tagName, className: String(node.className || ''), text: (node.textContent || '').slice(0, 120) }); queue.push(node.shadowRoot); }
+                if (node.matches?.('.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"], [role="textbox"], textarea')) {
+                    matches.push({ tag: node.tagName, className: String(node.className || ''), text: (node.innerText || node.textContent || '').slice(0, 300),
+                        contenteditable: node.getAttribute('contenteditable'), slate: node.getAttribute('data-slate-editor'), root: node.getRootNode() === document ? 'document' : 'shadow' });
+                }
+            }
+        }
+        return { shadowRoots: roots, matches };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function exerciseUploadLiveSlate() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!page) throw new Error('The VGen portfolio page is not open');
+    const probeExpression = `(() => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        const queue = [modal]; let editable = null;
+        while (queue.length && !editable) {
+            const root = queue.shift();
+            editable = root?.querySelector?.('[data-slate-editor="true"][contenteditable="true"]') || null;
+            for (const node of root?.querySelectorAll?.('*') || []) if (node.shadowRoot) queue.push(node.shadowRoot);
+        }
+        if (!editable) return { found: false };
+        const own = (element, prefix) => { const key = Object.getOwnPropertyNames(element).find((name) => name.startsWith(prefix)); return key ? element[key] : null; };
+        let editor = null; let fiber = own(editable, '__reactFiber$') || own(editable, '__reactInternalInstance$');
+        for (let depth = 0; fiber && depth < 100 && !editor; depth += 1, fiber = fiber.return) {
+            for (const candidate of [fiber, fiber.alternate].filter(Boolean)) {
+                let hook = candidate.memoizedState;
+                for (let i = 0; hook && i < 50; i += 1, hook = hook.next) {
+                    const value = hook.memoizedState;
+                    if (Array.isArray(value?.children) && typeof value.apply === 'function') { editor = value; break; }
+                }
+            }
+        }
+        return { found: true, text: editable.innerText, children: editor ? structuredClone(editor.children) : null,
+            html: editable.innerHTML, focused: editable === editable.getRootNode().activeElement };
+    })()`;
+    const before = await evaluate(page, probeExpression);
+    await evaluate(page, `(() => {
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        const queue = [modal];
+        while (queue.length) {
+            const root = queue.shift(); const editable = root?.querySelector?.('[data-slate-editor="true"][contenteditable="true"]');
+            if (editable) { editable.focus(); const selection = editable.getRootNode().getSelection?.() || window.getSelection(); selection?.selectAllChildren(editable); return true; }
+            for (const node of root?.querySelectorAll?.('*') || []) if (node.shadowRoot) queue.push(node.shadowRoot);
+        }
+        return false;
+    })()`);
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 2, windowsVirtualKeyCode: 65 });
+        await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', modifiers: 2, windowsVirtualKeyCode: 65 });
+        await client.send('Input.insertText', { text: 'VGenToolNya live validation manual edit. Do not submit.' });
+    } finally { client.close(); }
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const afterNativeEdit = await evaluate(page, probeExpression);
+    await evaluate(page, `document.querySelector('input[placeholder="New Showcase"]')?.focus()`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const afterRerender = await evaluate(page, probeExpression);
+    process.stdout.write(`${JSON.stringify({ before, afterNativeEdit, afterRerender }, null, 2)}\n`);
+}
+
+async function prepareUploadLiveProfile() {
+    const testRoot = process.env.VGEN_NYA_TEST_ROOT;
+    const chromePath = process.env.VGEN_NYA_CFT_CHROME;
+    const extensionPath = process.env.VGEN_NYA_TM_EXTENSION;
+    const port = Number(process.env.VGEN_NYA_LIVE_PORT || 9350);
+    if (!testRoot || !chromePath || !extensionPath) {
+        throw new Error('VGEN_NYA_TEST_ROOT, VGEN_NYA_CFT_CHROME and VGEN_NYA_TM_EXTENSION are required');
+    }
+    const scenarioRoot = path.join(testRoot, 'upload-live');
+    const markerPath = path.join(scenarioRoot, 'VGEN_NYA_LIVE_PROFILE.json');
+    let existingMarker = null;
+    try { existingMarker = JSON.parse(await readFile(markerPath, 'utf8')); } catch { /* first launch */ }
+    try {
+        await access(path.join(scenarioRoot, 'profile'));
+        if (!existingMarker?.managedByVGenToolNya) {
+            throw new Error(`Refusing to reuse an unrecognized profile: ${path.join(scenarioRoot, 'profile')}`);
+        }
+    } catch (error) {
+        if (error?.message?.startsWith('Refusing')) throw error;
+    }
+
+    const server = await startServer();
+    try {
+        const runtime = await launchIsolatedProfile({
+            scenario: 'upload-live', port, testRoot, chromePath, extensionPath,
+            visible: true, reusable: true,
+        });
+        await installUserScript('/VGenToolNya.user.js');
+        const scriptSource = await readFile(path.join(projectRoot, 'dist/VGenToolNya.user.js'), 'utf8');
+        const version = scriptSource.match(/^\/\/\s+@version\s+(.+)$/m)?.[1]?.trim() || 'unknown';
+        await writeFile(markerPath, JSON.stringify({
+            managedByVGenToolNya: true,
+            purpose: 'UPLOAD-LIVE-01',
+            profile: runtime.profile,
+            chromePath,
+            extensionPath,
+            remoteDebuggingPort: port,
+            installedScript: 'dist/VGenToolNya.user.js',
+            installedVersion: version,
+            updatedAt: new Date().toISOString(),
+            restrictions: ['no-production-profile-copy', 'no-production-cookie-import', 'no-legacy-userscripts'],
+        }, null, 2), 'utf8');
+        const page = await newPage('https://vgen.co/creator');
+        await bringToFront(page);
+        process.stdout.write(`${JSON.stringify({
+            ready: true,
+            waitingFor: 'manual-vgen-login',
+            profile: runtime.profile,
+            remoteDebuggingUrl: cdpBase,
+            installed: { file: 'dist/VGenToolNya.user.js', version },
+            legacyScriptsInstalled: false,
+            page: 'https://vgen.co/creator',
+        }, null, 2)}\n`);
+    } finally {
+        server.close();
+    }
 }
 
 async function seedAndInstallBridges() {
@@ -492,6 +1197,16 @@ function startServer() {
     return new Promise((resolve) => server.listen(serverPort, '127.0.0.1', () => resolve(server)));
 }
 
+async function updateUploadLiveUserscript() {
+    const server = await startServer();
+    try {
+        await installUserScript('/VGenToolNya.user.js');
+        process.stdout.write(`${JSON.stringify({ updated: true, source: 'dist/VGenToolNya.user.js' }, null, 2)}\n`);
+    } finally {
+        server.close();
+    }
+}
+
 async function probeInstall() {
     const server = await startServer();
     try {
@@ -550,7 +1265,162 @@ async function probeChromeExtensions() {
     process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
 }
 
+async function probeTampermonkeyDashboard() {
+    const extensionId = process.env.VGEN_NYA_TM_EXTENSION_ID || 'dhdgffkkebhmkfjojejmpbldmpobfkfo';
+    const page = await newPage(`chrome-extension://${extensionId}/options.html#nav=dashboard`);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    const details = await evaluate(page, `({
+        title: document.title,
+        text: document.body?.innerText?.slice(0, 10000),
+        controls: [...document.querySelectorAll('a,button,input')].map((node) => ({
+            tag: node.tagName, id: node.id, type: node.type, value: node.value,
+            text: (node.innerText || node.textContent || '').trim().slice(0, 300),
+            title: node.title || '', href: node.href || '',
+        })).filter((item) => /VGen|storage|menu|setting|edit/i.test([item.text,item.title,item.value,item.href].join(' '))).slice(0, 200)
+    })`);
+    process.stdout.write(`${JSON.stringify({ page: { id: page.id, url: page.url }, details }, null, 2)}\n`);
+}
+
+async function inspectTampermonkeyScriptRow() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.includes('options.html#nav=dashboard'));
+    if (!page) throw new Error('Tampermonkey dashboard is not open');
+    const details = await evaluate(page, `(() => {
+        const leaf = [...document.querySelectorAll('*')].find((node) => node.children.length === 0 && node.textContent.trim() === 'VGenToolNya');
+        if (!leaf) return null;
+        const chain = [];
+        let node = leaf;
+        for (let i = 0; node && i < 8; i += 1, node = node.parentElement) {
+            chain.push({ tag: node.tagName, id: node.id, className: String(node.className || ''),
+                role: node.getAttribute('role'), text: (node.innerText || '').trim().slice(0, 500),
+                html: node.outerHTML.slice(0, 3000) });
+        }
+        return chain;
+    })()`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function openTampermonkeyScriptEditor() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.includes('options.html#nav=dashboard'));
+    if (!page) throw new Error('Tampermonkey dashboard is not open');
+    const clicked = await evaluate(page, `(() => {
+        const leaf = [...document.querySelectorAll('*')].find((node) => node.children.length === 0 && node.textContent.trim() === 'VGenToolNya');
+        const clickable = leaf?.closest('.clickable');
+        if (!clickable) return false;
+        clickable.click();
+        return true;
+    })()`);
+    if (!clicked) throw new Error('VGenToolNya dashboard row was not clickable');
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const details = await evaluate(page, `({
+        url: location.href,
+        text: document.body.innerText.slice(0, 12000),
+        tabs: [...document.querySelectorAll('button,a,div,span')].filter((node) => /^(Source|Settings|Storage|Externals)$/i.test(node.textContent.trim())).map((node) => ({
+            tag: node.tagName, id: node.id, className: String(node.className || ''), text: node.textContent.trim()
+        })),
+    })`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function openTampermonkeyScriptSettings() {
+    const page = (await targets()).find((target) => target.type === 'page' && target.url.includes('+editor'));
+    if (!page) throw new Error('Tampermonkey script editor is not open');
+    const details = await evaluate(page, `(() => {
+        const tab = [...document.querySelectorAll('.tv_tab')].find((node) => node.textContent.trim() === 'Settings' && node.classList.contains('tv_tab_alt'));
+        if (!tab) return { clicked: false };
+        tab.click();
+        const visible = [...document.querySelectorAll('input,textarea,select,button')].filter((node) => {
+            const rect = node.getBoundingClientRect(); return rect.width > 0 && rect.height > 0;
+        }).map((node) => ({ tag: node.tagName, id: node.id, type: node.type, value: node.value,
+            text: (node.innerText || node.textContent || '').trim().slice(0, 300), name: node.name || '' }));
+        return { clicked: true, text: document.body.innerText.slice(-12000), visible };
+    })()`);
+    process.stdout.write(`${JSON.stringify(details, null, 2)}\n`);
+}
+
+async function probeTampermonkeyAction() {
+    const extensionId = process.env.VGEN_NYA_TM_EXTENSION_ID || 'dhdgffkkebhmkfjojejmpbldmpobfkfo';
+    const page = await newPage(`chrome-extension://${extensionId}/action.html`);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const details = await evaluate(page, `({
+        text: document.body.innerText,
+        controls: [...document.querySelectorAll('button,input,a,div')].filter((node) => {
+            const rect = node.getBoundingClientRect(); return rect.width > 0 && rect.height > 0;
+        }).map((node) => ({ tag: node.tagName, id: node.id, className: String(node.className || ''),
+            text: (node.innerText || node.textContent || '').trim().slice(0, 500), value: node.value || '', title: node.title || '' })).slice(0, 300)
+    })`);
+    process.stdout.write(`${JSON.stringify({ page: { id: page.id, url: page.url }, details }, null, 2)}\n`);
+}
+
+async function openTampermonkeyPopupForVGen() {
+    const allTargets = await targets();
+    const vgen = allTargets.find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    const worker = allTargets.find((target) => target.type === 'service_worker' && target.url.includes('dhdgffkkebhmkfjojejmpbldmpobfkfo'));
+    if (!vgen || !worker) throw new Error('VGen page or Tampermonkey service worker is unavailable');
+    await bringToFront(vgen);
+    const before = new Set(allTargets.map((target) => target.id));
+    const client = await new CDPClient(worker.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Runtime.enable');
+        const result = await client.send('Runtime.evaluate', { expression: 'chrome.action.openPopup()', awaitPromise: true, returnByValue: true, userGesture: true });
+        if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || 'Unable to open Tampermonkey popup');
+    } finally {
+        client.close();
+    }
+    const popup = await waitForTarget((target) => target.url.includes('action.html') && !before.has(target.id), 5_000);
+    const details = await evaluate(popup, `({
+        text: document.body.innerText,
+        controls: [...document.querySelectorAll('button,input,a,div')].filter((node) => {
+            const rect = node.getBoundingClientRect(); return rect.width > 0 && rect.height > 0;
+        }).map((node) => ({ tag: node.tagName, id: node.id, className: String(node.className || ''),
+            text: (node.innerText || node.textContent || '').trim().slice(0, 500), value: node.value || '', title: node.title || '' })).slice(0, 300)
+    })`);
+    process.stdout.write(`${JSON.stringify({ popup: { id: popup.id, type: popup.type, url: popup.url }, details }, null, 2)}\n`);
+}
+
+async function invokeVGenToolNyaSettingsCommand() {
+    const popup = (await targets()).find((target) => target.type === 'page' && target.url.includes('action.html'));
+    const vgen = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    if (!popup || !vgen) throw new Error('Tampermonkey popup or VGen page is unavailable');
+    const clicked = await evaluate(popup, `(() => {
+        const leaf = [...document.querySelectorAll('*')].find((node) => node.children.length === 0 && node.textContent.includes('设置'));
+        const clickable = leaf?.closest('.clickable') || leaf?.parentElement;
+        if (!clickable) return false;
+        clickable.click();
+        return true;
+    })()`);
+    if (!clicked) throw new Error('VGenToolNya settings menu command was not found');
+    const opened = await waitForExpression(vgen, `Boolean(document.querySelector('#vgen-nya-settings-overlay'))`, 5_000);
+    await bringToFront(vgen);
+    process.stdout.write(`${JSON.stringify({ clicked: true, opened }, null, 2)}\n`);
+}
+
 if (process.argv.includes('--probe-install')) await probeInstall();
 if (process.argv.includes('--probe-options')) await probeOptions();
 if (process.argv.includes('--probe-chrome-extensions')) await probeChromeExtensions();
 if (process.argv.includes('--run-full')) await runFullDeploymentL2();
+if (process.argv.includes('--prepare-upload-live')) await prepareUploadLiveProfile();
+if (process.argv.includes('--update-upload-live-userscript')) await updateUploadLiveUserscript();
+if (process.argv.includes('--show-upload-live')) await showUploadLiveWindow();
+if (process.argv.includes('--probe-upload-live')) await probeUploadLivePage();
+if (process.argv.includes('--navigate-upload-live-creator')) await navigateUploadLiveCreator();
+if (process.argv.includes('--navigate-upload-live-portfolio')) await navigateUploadLivePortfolio();
+if (process.argv.includes('--navigate-upload-live-services')) await navigateUploadLiveServices();
+if (process.argv.includes('--exercise-upload-live-service-blacklist')) await exerciseUploadLiveServiceBlacklist();
+if (process.argv.includes('--measure-upload-live-cleanup')) await measureUploadLiveCleanup();
+if (process.argv.includes('--open-upload-live-modal')) await openUploadLiveModal();
+if (process.argv.includes('--inspect-upload-live-modal')) await inspectUploadLiveModal();
+if (process.argv.includes('--inspect-upload-live-react')) await inspectUploadLiveReactState();
+if (process.argv.includes('--seed-upload-live-presets')) await seedUploadLivePresetsThroughSettings();
+if (process.argv.includes('--exercise-upload-live-refresh')) await exerciseUploadLiveRefresh();
+if (process.argv.includes('--cycle-upload-live-modal')) await cycleUploadLiveModal();
+if (process.argv.includes('--exercise-upload-live-core')) await exerciseUploadLiveCore();
+if (process.argv.includes('--attach-upload-live-test-image')) await attachUploadLiveTestImage();
+if (process.argv.includes('--inspect-upload-live-shadow')) await inspectUploadLiveShadowDom();
+if (process.argv.includes('--exercise-upload-live-slate')) await exerciseUploadLiveSlate();
+if (process.argv.includes('--probe-tampermonkey-dashboard')) await probeTampermonkeyDashboard();
+if (process.argv.includes('--inspect-tampermonkey-script-row')) await inspectTampermonkeyScriptRow();
+if (process.argv.includes('--open-tampermonkey-script-editor')) await openTampermonkeyScriptEditor();
+if (process.argv.includes('--open-tampermonkey-script-settings')) await openTampermonkeyScriptSettings();
+if (process.argv.includes('--probe-tampermonkey-action')) await probeTampermonkeyAction();
+if (process.argv.includes('--open-tampermonkey-popup-vgen')) await openTampermonkeyPopupForVGen();
+if (process.argv.includes('--invoke-vgen-nya-settings')) await invokeVGenToolNyaSettingsCommand();

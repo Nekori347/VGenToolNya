@@ -1432,6 +1432,58 @@ ${summary}
   function fiberCandidates(fiber) {
     return fiber?.alternate ? [fiber, fiber.alternate] : fiber ? [fiber] : [];
   }
+  function reactProps(element2) {
+    return ownReactValue(element2, "__reactProps$");
+  }
+  function expandableDisclosure(control, surface) {
+    const content = control.closest?.("[aria-hidden]");
+    const root = content?.parentElement;
+    if (!root || !surface.contains(root)) return null;
+    let node = control;
+    for (let nodeDepth = 0; node && nodeDepth < 8; nodeDepth += 1, node = node.parentElement || node.getRootNode?.()?.host || null) {
+      let fiber = ownReactValue(node, "__reactFiber$") || ownReactValue(node, "__reactInternalInstance$");
+      for (let depth = 0; fiber && depth < 45; depth += 1, fiber = fiber.return) {
+        for (const candidate of fiberCandidates(fiber)) {
+          const props = candidate.memoizedProps || candidate.pendingProps;
+          if (!Object.hasOwn(props || {}, "isDefaultHidden") || typeof props?.onClickExpand !== "function") continue;
+          let openHook = candidate.memoizedState;
+          while (openHook && !(typeof openHook.memoizedState === "boolean" && typeof openHook.queue?.dispatch === "function")) openHook = openHook.next;
+          if (!openHook) continue;
+          return {
+            root,
+            collapse() {
+              if (openHook.memoizedState !== true && ![...root.children].some((child) => child.getAttribute?.("aria-hidden") === "false")) return;
+              const onClick = reactProps(root)?.onClick;
+              if (typeof onClick === "function") onClick();
+              else {
+                openHook.queue.dispatch(false);
+                props.onClickExpand(false);
+              }
+            }
+          };
+        }
+      }
+    }
+    return null;
+  }
+  function deepQueryAll(root, selector) {
+    const matches = [];
+    const queue = [root].filter(Boolean);
+    const visited = /* @__PURE__ */ new Set();
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current || visited.has(current)) continue;
+      visited.add(current);
+      matches.push(...current.querySelectorAll(selector));
+      const documentObject = current.ownerDocument || current.host?.ownerDocument;
+      if (!documentObject?.createTreeWalker) continue;
+      const walker = documentObject.createTreeWalker(current, globalThis.NodeFilter?.SHOW_ELEMENT || 1);
+      for (let element2 = walker.nextNode(); element2; element2 = walker.nextNode()) {
+        if (element2.shadowRoot) queue.push(element2.shadowRoot);
+      }
+    }
+    return [...new Set(matches)];
+  }
   function tagBridgeFromInput(input) {
     let node = input;
     for (let nodeDepth = 0; node && nodeDepth < 8; nodeDepth += 1, node = node.parentElement) {
@@ -1474,7 +1526,7 @@ ${summary}
   }
   function walkAncestorProps(element2, visitor) {
     let node = element2;
-    for (let nodeDepth = 0; node && nodeDepth < 7; nodeDepth += 1, node = node.parentElement) {
+    for (let nodeDepth = 0; node && nodeDepth < 12; nodeDepth += 1, node = node.parentElement || node.getRootNode?.()?.host || null) {
       let fiber = ownReactValue(node, "__reactFiber$") || ownReactValue(node, "__reactInternalInstance$");
       for (let depth = 0; fiber && depth < 35; depth += 1, fiber = fiber.return) {
         for (const candidate of fiberCandidates(fiber)) {
@@ -1514,7 +1566,7 @@ ${summary}
     return [...options.values()];
   }
   function findSlateEditor(surface) {
-    const controls = surface.querySelectorAll('.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"]');
+    const controls = deepQueryAll(surface, '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"]');
     for (const control of controls) {
       const editor = walkAncestorProps(control, (_props, fiber) => {
         for (const candidate of fiberCandidates(fiber)) {
@@ -1542,7 +1594,7 @@ ${summary}
   }
   function findTextCommit(surface, kind) {
     const selector = kind === "title" ? 'input:not([type]), input[type="text"]' : '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"], textarea';
-    for (const control of surface.querySelectorAll(selector)) {
+    for (const control of deepQueryAll(surface, selector)) {
       const commit = walkAncestorProps(control, (props) => {
         if (kind === "title" && typeof props?.onChange === "function" && typeof props?.value === "string") return props.onChange;
         if (kind === "description") return props?.onEditCallback || props?.onValueChange || (typeof props?.onChange === "function" ? props.onChange : null);
@@ -1645,9 +1697,12 @@ ${summary}
       });
     }
     collapseDiscovery() {
-      const toggles = this.surface.querySelectorAll('button[aria-expanded="true"], [role="button"][aria-expanded="true"]');
-      const toggle = [...toggles].find((node) => /discovery|发现/i.test(node.textContent || node.getAttribute?.("aria-label") || ""));
-      toggle?.click();
+      const disclosures = /* @__PURE__ */ new Map();
+      for (const control of this.surface.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
+        const disclosure = expandableDisclosure(control, this.surface);
+        if (disclosure) disclosures.set(disclosure.root, disclosure);
+      }
+      for (const disclosure of disclosures.values()) disclosure.collapse();
     }
     async applyCombination(preset) {
       await this.applyText("title", preset?.title || "");
