@@ -35,35 +35,31 @@ export class ChatSearchLocator {
         this.highlightTimers.add(timer);
     }
 
-    // Locate a message that may not be in the DOM yet by loading older history
-    // through the supplied `loader` (e.g. channel.state.loadMore). Bounded.
-    async locateOrLoad(messageId, { loader, maxLoads = 12, signal } = {}) {
+    // Locate a message that may not be in the DOM yet. When it is not rendered,
+    // `load` (e.g. channel.query with id_around) loads its region into SDK state
+    // and we re-check the DOM. The reverse-infinite-scroll list may still not
+    // mount it, so the caller reports that honestly instead of faking a message.
+    async locateOrLoad(messageId, { load, signal } = {}) {
         const element = this.findElement(messageId);
         if (element) {
             this.scrollTo(element);
             this.highlight(element);
             return { found: true, loads: 0 };
         }
-        if (typeof loader !== 'function') return { found: false, loads: 0 };
-        let loads = 0;
-        while (loads < maxLoads) {
-            if (signal?.aborted) return { found: false, loads, aborted: true };
-            let hasMore;
-            try {
-                hasMore = await loader();
-            } catch {
-                return { found: false, loads, aborted: false };
-            }
-            loads += 1;
-            const loaded = this.findElement(messageId);
-            if (loaded) {
-                this.scrollTo(loaded);
-                this.highlight(loaded);
-                return { found: true, loads };
-            }
-            if (!hasMore) break;
+        if (typeof load !== 'function') return { found: false, loads: 0 };
+        if (signal?.aborted) return { found: false, loads: 0, aborted: true };
+        try {
+            await load(messageId);
+        } catch {
+            return { found: false, loads: 0 };
         }
-        return { found: false, loads };
+        const loaded = this.findElement(messageId);
+        if (loaded) {
+            this.scrollTo(loaded);
+            this.highlight(loaded);
+            return { found: true, loads: 1 };
+        }
+        return { found: false, loads: 1 };
     }
 
     clearHighlights() {

@@ -120,11 +120,30 @@ test('Iteration 7 L1: history adapter reads loaded state and server search when 
     assert.equal(server[0].messageId, 's1');
 });
 
+test('Iteration 7 L1: history adapter loads a region around a message id', async () => {
+    const state = { messages: [] };
+    const channel = {
+        cid: 'messaging:c',
+        state,
+        query: async ({ messages }) => {
+            if (messages.id_around) {
+                state.messages = [msg('m1', 'one'), msg('m2', 'two')];
+                return { messages: state.messages };
+            }
+            return { messages: [] };
+        },
+    };
+    const adapter = new ChatHistoryAdapter({ channel });
+    assert.equal((await adapter.loadAround('m1')).loaded, true);
+    assert.equal((await adapter.loadAround('nope')).loaded, false);
+});
+
 test('Iteration 7 L1: bounded cache reuses pages, isolates channels and evicts LRU', () => {
     const cache = new ChatSearchCache({ maxChannels: 2, maxMessages: 3 });
     cache.record('c1', [norm('m1', 'a'), norm('m2', 'b')], { complete: false });
     assert.equal(cache.get('c1').complete, false);
     assert.equal(cache.get('c1').messages.length, 2);
+    assert.equal(cache.oldestId(cache.get('c1')), 'm1'); // ascending page: first message is the oldest cursor
     assert.equal(cache.get('c2'), null); // channel isolation
     cache.record('c2', [norm('x1', 'a')], { complete: true });
     assert.equal(cache.size, 2);
@@ -159,7 +178,7 @@ test('Iteration 7 L1: engine paginates history, matches locally and marks comple
     assert.equal(snap.state, SEARCH_STATES.results);
     assert.deepEqual(snap.results.map((message) => message.messageId), ['m3', 'm1']);
     assert.equal(snap.partial, false);
-    assert.deepEqual(history.calls.map((call) => call.before), [null, 'm3', 'm1']);
+    assert.deepEqual(history.calls.map((call) => call.before), [null, 'm4', 'm2']); // cursor advances to the oldest (first) message of each ascending page
 });
 
 test('Iteration 7 L1: engine returns empty, idle and partial states correctly', async () => {
@@ -228,23 +247,22 @@ test('Iteration 7 L1: locator finds, highlights and loads historical messages', 
     assert.equal(locator.findElement('m1'), loaded);
     assert.equal(locator.findElement('missing'), null);
 
-    // Historical target reached through the loader.
-    const loads = [];
-    const loader = async () => {
-        loads.push(1);
-        const older = documentObject.createElement('div');
-        older.dataset.messageId = 'm0';
-        surface.append(older);
-        return loads.length < 2;
-    };
-    const result = await locator.locateOrLoad('m0', { loader, maxLoads: 3 });
+    // Historical target reached through a single region load.
+    const result = await locator.locateOrLoad('m0', {
+        load: async () => {
+            const older = documentObject.createElement('div');
+            older.dataset.messageId = 'm0';
+            surface.append(older);
+        },
+    });
     assert.equal(result.found, true);
     assert.equal(result.loads, 1);
     assert.equal(locator.findElement('m0') !== null, true);
 
-    // Missing message never found.
-    const missing = await locator.locateOrLoad('nope', { loader: async () => false, maxLoads: 3 });
+    // Missing message never found and is never faked into the DOM.
+    const missing = await locator.locateOrLoad('nope', { load: async () => {} });
     assert.equal(missing.found, false);
+    assert.equal(locator.findElement('nope'), null);
     locator.clearHighlights();
 });
 

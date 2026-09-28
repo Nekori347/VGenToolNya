@@ -132,12 +132,8 @@ export class ChatSearchController {
 
     async #locate(messageId) {
         if (!messageId) return;
-        const loader = () => {
-            const channel = this.#channel();
-            if (typeof channel?.state?.loadMore === 'function') return channel.state.loadMore({ limit: 50 });
-            return Promise.resolve(false);
-        };
-        await this.locator.locateOrLoad(messageId, { loader });
+        const history = this.#historyAdapter();
+        await this.locator.locateOrLoad(messageId, { load: (id) => history.loadAround(id) });
     }
 
     #renderResults() {

@@ -3183,8 +3183,9 @@ ${summary}
       const normalized = messages.map((message) => normalizeChatMessage(message, cid)).filter(Boolean);
       return normalized.length ? normalized : null;
     }
-    // Fetches one page of history. `before` is the id of the oldest message seen
-    // so far; the SDK paginates with id_lt. Returns { available, messages, hasMore }.
+    // Fetches one page of history. The SDK returns pages in ascending (oldest
+    // first) order; `before` is the id of the oldest message seen so far and is
+    // passed as id_lt. Returns { available, messages, hasMore }.
     async fetchHistoryPage({ before = null, limit = 100, signal } = {}) {
       const channel = this.channel;
       if (!channel) return { available: false, messages: [], hasMore: false };
@@ -3199,6 +3200,22 @@ ${summary}
         return { available: true, messages, hasMore };
       } catch {
         return { available: false, messages: [], hasMore: false };
+      }
+    }
+    // Loads the region around a single message id into the channel state so a
+    // not-yet-rendered result can be resolved. Returns whether the target id is
+    // now present in the SDK state (it may still not be mounted in the DOM, which
+    // is the caller's responsibility to report honestly).
+    async loadAround(messageId, { limit = 50, signal } = {}) {
+      const channel = this.channel;
+      const target = String(messageId || "");
+      if (!channel || !target || typeof channel.query !== "function") return { loaded: false };
+      try {
+        await channel.query({ messages: { limit, id_around: target } }, { signal });
+        const present = (channel.state?.messages || []).some((message) => String(message?.id) === target);
+        return { loaded: present };
+      } catch {
+        return { loaded: false };
       }
     }
   };
@@ -3228,6 +3245,13 @@ ${summary}
     const plain = normalizeSearchText(text);
     return plain.length > maximum ? `${plain.slice(0, maximum)}…` : plain;
   }
+  function sortNewestFirst(messages) {
+    return [...messages].sort((left, right) => {
+      const a = Number(Date.parse(left?.createdAt || "")) || 0;
+      const b = Number(Date.parse(right?.createdAt || "")) || 0;
+      return b - a;
+    });
+  }
   var DEFAULT_MAX_CHANNELS = 5;
   var DEFAULT_MAX_MESSAGES_PER_CHANNEL = 500;
   var ChatSearchCache = class {
@@ -3243,15 +3267,19 @@ ${summary}
       this.channels.set(cid, entry);
       return entry;
     }
-    // Merges a fetched page into the channel entry and returns the entry. Pages
-    // append older messages after newer ones, so entry.messages stays newest-first.
+    // Merges a fetched page into the channel entry and returns the entry. The SDK
+    // returns each page in ascending (oldest-first) order, so the first message of
+    // a page is its oldest and becomes the next id_lt cursor.
     record(cid, messages, { complete = false } = {}) {
-      const entry = this.get(cid) || { messages: [], ids: /* @__PURE__ */ new Set(), complete: false };
+      const entry = this.get(cid) || { messages: [], ids: /* @__PURE__ */ new Set(), complete: false, oldestId: null };
+      let firstNewId = null;
       for (const message of messages) {
         if (!message?.messageId || entry.ids.has(message.messageId)) continue;
         entry.ids.add(message.messageId);
         entry.messages.push(message);
+        if (firstNewId === null) firstNewId = message.messageId;
       }
+      if (firstNewId !== null) entry.oldestId = firstNewId;
       entry.complete = Boolean(entry.complete || complete);
       if (entry.messages.length > this.maxMessages) {
         const overflow = entry.messages.length - this.maxMessages;
@@ -3268,8 +3296,7 @@ ${summary}
       return entry;
     }
     oldestId(entry) {
-      const messages = entry?.messages || [];
-      return messages.length ? messages[messages.length - 1].messageId : null;
+      return entry?.oldestId || null;
     }
     clear() {
       this.channels.clear();
@@ -3314,7 +3341,7 @@ ${summary}
           const server = await history.searchServer(normalized);
           if (operation !== this.operation) return this.snapshot;
           if (server && server.length) {
-            this.#set({ state: SEARCH_STATES.results, results: server, source: SEARCH_SOURCES.server, partial: false, error: null });
+            this.#set({ state: SEARCH_STATES.results, results: sortNewestFirst(server), source: SEARCH_SOURCES.server, partial: false, error: null });
             return this.snapshot;
           }
         }
@@ -3350,12 +3377,12 @@ ${summary}
         pagesFetched += 1;
       }
       const { messages } = entry;
-      const matches = messages.filter((message) => matchesQuery(message.text, normalized));
+      const matches = sortNewestFirst(messages.filter((message) => matchesQuery(message.text, normalized)));
       const partial = !entry.complete && available === true;
       const source = available ? SEARCH_SOURCES.history : SEARCH_SOURCES.loaded;
       if (!available) {
         const loaded = history.loadedMessages?.() || [];
-        const loadedMatches = loaded.filter((message) => matchesQuery(message.text, normalized));
+        const loadedMatches = sortNewestFirst(loaded.filter((message) => matchesQuery(message.text, normalized)));
         return {
           state: loadedMatches.length ? SEARCH_STATES.results : SEARCH_STATES.empty,
           results: loadedMatches,
@@ -3410,35 +3437,31 @@ ${summary}
       const timer = this.documentObject?.defaultView?.setTimeout?.(() => element2.classList?.remove?.(HIGHLIGHT_CLASS), HIGHLIGHT_MS) || globalThis.setTimeout(() => element2.classList?.remove?.(HIGHLIGHT_CLASS), HIGHLIGHT_MS);
       this.highlightTimers.add(timer);
     }
-    // Locate a message that may not be in the DOM yet by loading older history
-    // through the supplied `loader` (e.g. channel.state.loadMore). Bounded.
-    async locateOrLoad(messageId, { loader, maxLoads = 12, signal } = {}) {
+    // Locate a message that may not be in the DOM yet. When it is not rendered,
+    // `load` (e.g. channel.query with id_around) loads its region into SDK state
+    // and we re-check the DOM. The reverse-infinite-scroll list may still not
+    // mount it, so the caller reports that honestly instead of faking a message.
+    async locateOrLoad(messageId, { load, signal } = {}) {
       const element2 = this.findElement(messageId);
       if (element2) {
         this.scrollTo(element2);
         this.highlight(element2);
         return { found: true, loads: 0 };
       }
-      if (typeof loader !== "function") return { found: false, loads: 0 };
-      let loads = 0;
-      while (loads < maxLoads) {
-        if (signal?.aborted) return { found: false, loads, aborted: true };
-        let hasMore;
-        try {
-          hasMore = await loader();
-        } catch {
-          return { found: false, loads, aborted: false };
-        }
-        loads += 1;
-        const loaded = this.findElement(messageId);
-        if (loaded) {
-          this.scrollTo(loaded);
-          this.highlight(loaded);
-          return { found: true, loads };
-        }
-        if (!hasMore) break;
+      if (typeof load !== "function") return { found: false, loads: 0 };
+      if (signal?.aborted) return { found: false, loads: 0, aborted: true };
+      try {
+        await load(messageId);
+      } catch {
+        return { found: false, loads: 0 };
       }
-      return { found: false, loads };
+      const loaded = this.findElement(messageId);
+      if (loaded) {
+        this.scrollTo(loaded);
+        this.highlight(loaded);
+        return { found: true, loads: 1 };
+      }
+      return { found: false, loads: 1 };
     }
     clearHighlights() {
       for (const timer of this.highlightTimers) {
@@ -3581,12 +3604,8 @@ ${summary}
     }
     async #locate(messageId) {
       if (!messageId) return;
-      const loader = () => {
-        const channel = this.#channel();
-        if (typeof channel?.state?.loadMore === "function") return channel.state.loadMore({ limit: 50 });
-        return Promise.resolve(false);
-      };
-      await this.locator.locateOrLoad(messageId, { loader });
+      const history = this.#historyAdapter();
+      await this.locator.locateOrLoad(messageId, { load: (id) => history.loadAround(id) });
     }
     #renderResults() {
       const snapshot = this.engine.snapshot;

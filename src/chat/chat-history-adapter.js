@@ -69,8 +69,9 @@ export class ChatHistoryAdapter {
         return normalized.length ? normalized : null;
     }
 
-    // Fetches one page of history. `before` is the id of the oldest message seen
-    // so far; the SDK paginates with id_lt. Returns { available, messages, hasMore }.
+    // Fetches one page of history. The SDK returns pages in ascending (oldest
+    // first) order; `before` is the id of the oldest message seen so far and is
+    // passed as id_lt. Returns { available, messages, hasMore }.
     async fetchHistoryPage({ before = null, limit = 100, signal } = {}) {
         const channel = this.channel;
         if (!channel) return { available: false, messages: [], hasMore: false };
@@ -87,6 +88,23 @@ export class ChatHistoryAdapter {
             return { available: true, messages, hasMore };
         } catch {
             return { available: false, messages: [], hasMore: false };
+        }
+    }
+
+    // Loads the region around a single message id into the channel state so a
+    // not-yet-rendered result can be resolved. Returns whether the target id is
+    // now present in the SDK state (it may still not be mounted in the DOM, which
+    // is the caller's responsibility to report honestly).
+    async loadAround(messageId, { limit = 50, signal } = {}) {
+        const channel = this.channel;
+        const target = String(messageId || '');
+        if (!channel || !target || typeof channel.query !== 'function') return { loaded: false };
+        try {
+            await channel.query({ messages: { limit, id_around: target } }, { signal });
+            const present = (channel.state?.messages || []).some((message) => String(message?.id) === target);
+            return { loaded: present };
+        } catch {
+            return { loaded: false };
         }
     }
 }

@@ -32,6 +32,15 @@ export function makeSnippet(text, maximum = 160) {
     return plain.length > maximum ? `${plain.slice(0, maximum)}…` : plain;
 }
 
+// Results are shown newest-first for a clear, stable chat-time order.
+export function sortNewestFirst(messages) {
+    return [...messages].sort((left, right) => {
+        const a = Number(Date.parse(left?.createdAt || '')) || 0;
+        const b = Number(Date.parse(right?.createdAt || '')) || 0;
+        return b - a;
+    });
+}
+
 const DEFAULT_MAX_CHANNELS = 5;
 const DEFAULT_MAX_MESSAGES_PER_CHANNEL = 500;
 
@@ -53,15 +62,19 @@ export class ChatSearchCache {
         return entry;
     }
 
-    // Merges a fetched page into the channel entry and returns the entry. Pages
-    // append older messages after newer ones, so entry.messages stays newest-first.
+    // Merges a fetched page into the channel entry and returns the entry. The SDK
+    // returns each page in ascending (oldest-first) order, so the first message of
+    // a page is its oldest and becomes the next id_lt cursor.
     record(cid, messages, { complete = false } = {}) {
-        const entry = this.get(cid) || { messages: [], ids: new Set(), complete: false };
+        const entry = this.get(cid) || { messages: [], ids: new Set(), complete: false, oldestId: null };
+        let firstNewId = null;
         for (const message of messages) {
             if (!message?.messageId || entry.ids.has(message.messageId)) continue;
             entry.ids.add(message.messageId);
             entry.messages.push(message);
+            if (firstNewId === null) firstNewId = message.messageId;
         }
+        if (firstNewId !== null) entry.oldestId = firstNewId;
         entry.complete = Boolean(entry.complete || complete);
         if (entry.messages.length > this.maxMessages) {
             const overflow = entry.messages.length - this.maxMessages;
@@ -79,8 +92,7 @@ export class ChatSearchCache {
     }
 
     oldestId(entry) {
-        const messages = entry?.messages || [];
-        return messages.length ? messages[messages.length - 1].messageId : null;
+        return entry?.oldestId || null;
     }
 
     clear() {
@@ -133,7 +145,7 @@ export class ChatSearchEngine {
                 const server = await history.searchServer(normalized);
                 if (operation !== this.operation) return this.snapshot;
                 if (server && server.length) {
-                    this.#set({ state: SEARCH_STATES.results, results: server, source: SEARCH_SOURCES.server, partial: false, error: null });
+                    this.#set({ state: SEARCH_STATES.results, results: sortNewestFirst(server), source: SEARCH_SOURCES.server, partial: false, error: null });
                     return this.snapshot;
                 }
             }
@@ -165,13 +177,13 @@ export class ChatSearchEngine {
             pagesFetched += 1;
         }
         const { messages } = entry;
-        const matches = messages.filter((message) => matchesQuery(message.text, normalized));
+        const matches = sortNewestFirst(messages.filter((message) => matchesQuery(message.text, normalized)));
         const partial = !entry.complete && available === true;
         const source = available ? SEARCH_SOURCES.history : SEARCH_SOURCES.loaded;
         if (!available) {
             // Pagination unavailable: fall back to already-loaded SDK messages.
             const loaded = history.loadedMessages?.() || [];
-            const loadedMatches = loaded.filter((message) => matchesQuery(message.text, normalized));
+            const loadedMatches = sortNewestFirst(loaded.filter((message) => matchesQuery(message.text, normalized)));
             return {
                 state: loadedMatches.length ? SEARCH_STATES.results : SEARCH_STATES.empty,
                 results: loadedMatches,
