@@ -94,7 +94,7 @@
 - 模型强度：Medium
 
 ## Iteration 7 — Chat Full-text Search
-- Status：**MERGE REVIEW READY**（`feat/chat-fulltext-search`；`FUNCTIONAL = PASS`、`UI_INTEGRATION_SAFE = PASS`、`CHAT-SEARCH-LIVE-01 = PASS`；`npm test` 152/152、L1 120/120、L2 130/130、`release:check` 28/28）
+- Status：**MERGED / COMPLETE**（PR #6 已以 merge commit `86d2906` 合并到 `main`；`CHAT-SEARCH-LIVE-01 = PASS`；history strategy = `id_lt` 分页 + 本地 substring；server search = unavailable / 504；historical DOM locate = PARTIAL；`npm test` 152/152、L1 120/120、L2 130/130、`release:check` 28/28）
 - Goal：关键词→消息→定位；优先 Stream Chat SDK 分页，降级已加载消息
 - Modules：Chat Assistant（ChatHistoryAdapter / ChatSearchEngine / ChatSearchLocator / ChatSearchController）
 - Non-goals：不持续扫描整个聊天 DOM；不跨 client 全局搜索；不做语义/AI 搜索；不自动 mark read
