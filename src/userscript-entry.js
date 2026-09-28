@@ -65,6 +65,7 @@ function start() {
     core.mountChatAssistant();
     core.mountFrequentClients();
     core.mountOrderAssistant();
+    core.mountReviewAssistant();
     // Private Note may autosave on native change. Keep its runtime gated until PRIVATE-NOTE-LIVE-01 is safe.
 }
 
