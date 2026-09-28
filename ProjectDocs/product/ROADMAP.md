@@ -70,7 +70,7 @@
 - 模型强度：Medium
 
 ## Iteration 5 — Order Assistant（Copy ID / URL / Client Background）
-- Status：**LIVE CORE PASS / REVIEW SCHEMA RESOLVED**（`npm test` 100/100、`release:check` 26/26；Chrome Live 已验证 Detail lifecycle / Copy / cache / 零写请求；二元 `wouldRecommend === false` 已取代冻结 `rating < 5` 作为负向风险语义）
+- Status：**LIVE CORE PASS / REVIEW SCHEMA RESOLVED / REVIEW ENTRIES SOURCE INTEGRATED**（`npm test` 109/109、L1 77/77、L2 87/87、`release:check` 26/26；Chrome Live 已验证 Detail lifecycle / Copy / cache / 零写请求；二元 `wouldRecommend === false` 取代冻结 `rating < 5`；adapter 已接入真实 `api.vgen.co/discoverability/reviews/client/{id}` 评价条目数据源）
 - Goal：所有可打开的 Order / Commission Detail Panel 挂 Copy Client ID / Profile URL 与公开低星评价提醒（缓存）
 - Modules：Order Assistant、Client Background / Client Review Context
 - Non-goals：不改订单状态、不接飞书
