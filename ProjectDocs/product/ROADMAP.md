@@ -57,7 +57,7 @@
 - 模型强度：High（回归敏感）
 
 ## Iteration 4 — Text Preset Engine + Delivery/Note/Quick Reply
-- Status：**LIVE GATE COMPLETE / MERGE REVIEW READY**
+- Status：**MERGED / COMPLETE**（PR #3 已以 merge commit `b614266c` 合并到 `main`；`PRESET-LIVE-01 = PASS_CORE`、`UI_INTEGRATION_SAFE = PASS`）
 - Goal：统一 Text Preset Engine，接入 Final Delivery、Private Note、Chat Quick Reply
 - Modules：Preset Engine、Upload（Title/Description 复用）、Chat、Order
 - Non-goals：不自动提交/发送/交付
