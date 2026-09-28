@@ -29,6 +29,8 @@ export const CONFIG_KEYS = Object.freeze({
     privateNotePresets: 'vgen-nya.text-presets.private-note.v1',
     finalDeliveryPresets: 'vgen-nya.text-presets.final-delivery.v1',
     orderSettings: 'vgen-nya.order-settings.v1',
+    reviewProvider: 'vgen-nya.review-provider.v1',
+    reviewSettings: 'vgen-nya.review-settings.v1',
 });
 
 const isArray = Array.isArray;
