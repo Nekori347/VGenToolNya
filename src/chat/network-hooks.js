@@ -57,7 +57,7 @@ export class ChatNetworkHooks {
                     runtime.#event('http.request', { method: String(method).toUpperCase(), kind: classification.kind, cid: classification.cid, reason });
                     const result = nativeFetch.apply(this, arguments);
                     Promise.resolve(result).then(async (response) => {
-                        const raw = await responseJSON(response);
+                        const raw = classification.kind === 'message' ? await responseJSON(response) : null;
                         runtime.#finish(classification, response?.ok, raw, boundary);
                         runtime.#event('http.response', { status: response?.status, kind: classification.kind, cid: classification.cid });
                     }, (error) => runtime.#event('http.error', { kind: classification.kind, name: error?.name || 'Error' }));
@@ -86,7 +86,9 @@ export class ChatNetworkHooks {
                     runtime.#event('http.request', { method: String(meta.method || 'GET').toUpperCase(), kind: classification.kind, cid: classification.cid, reason });
                     const onLoad = () => {
                         let raw = null;
-                        try { raw = xhr.responseType === 'json' ? xhr.response : JSON.parse(xhr.responseText || 'null'); } catch { /* metadata only */ }
+                        if (classification.kind === 'message') {
+                            try { raw = xhr.responseType === 'json' ? xhr.response : JSON.parse(xhr.responseText || 'null'); } catch { /* metadata only */ }
+                        }
                         runtime.#finish(classification, xhr.status >= 200 && xhr.status < 300, raw, boundary);
                         runtime.#event('http.response', { status: xhr.status, kind: classification.kind, cid: classification.cid });
                         xhr.removeEventListener?.('load', onLoad);

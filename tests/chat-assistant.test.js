@@ -82,11 +82,12 @@ test('Iteration 3 L1: confirmed reply creates a bounded read release and newer m
     await assert.rejects(next, { name: 'AbortError' });
 });
 
-test('Iteration 3 L2: network and diagnostics hooks restore every native function', () => {
+test('Iteration 3 L2: network and diagnostics hooks restore every native function without parsing unrelated traffic', async () => {
     class XHR extends EventTarget { open() {} send() {} abort() {} }
     function NativeWebSocket() {}
     function NativeEventSource() {}
-    const nativeFetch = async () => ({ ok: true, status: 200, clone: () => ({ json: async () => ({}) }) });
+    let clones = 0;
+    const nativeFetch = async () => ({ ok: true, status: 200, clone: () => { clones += 1; return { json: async () => ({}) }; } });
     const windowObject = { fetch: nativeFetch, XMLHttpRequest: XHR, WebSocket: NativeWebSocket, EventSource: NativeEventSource, location: { href: 'https://vgen.co/' } };
     const originals = { open: XHR.prototype.open, send: XHR.prototype.send, abort: XHR.prototype.abort };
     const gate = new ReadGate();
@@ -107,6 +108,19 @@ test('Iteration 3 L2: network and diagnostics hooks restore every native functio
     assert.equal(XHR.prototype.abort, originals.abort);
 
     hooks.configureRead(true);
+    await windowObject.fetch('https://vgen.co/api/unrelated');
+    await flush();
+    assert.equal(clones, 0);
+    let responseTextReads = 0;
+    const unrelated = new windowObject.XMLHttpRequest();
+    Object.defineProperties(unrelated, {
+        status: { value: 200 },
+        responseText: { get: () => { responseTextReads += 1; return '{}'; } },
+    });
+    unrelated.open('GET', 'https://vgen.co/api/unrelated');
+    unrelated.send();
+    unrelated.dispatchEvent(new Event('load'));
+    assert.equal(responseTextReads, 0);
     diagnostics.start();
     diagnostics.stop();
     assert.notEqual(windowObject.fetch, nativeFetch);
@@ -528,6 +542,29 @@ test('Iteration 3 L2: Frequent Clients remounts after VGen replaces the confirme
     assert.equal(runtime.panel.parentElement, replacement);
     assert.equal(hostObserver.disconnected, true);
     runtime.unmount();
+});
+
+test('Iteration 3 L2: Frequent Clients aborts pending profile refresh before unmount can write cache', async () => {
+    const repo = repository({ [CONFIG_KEYS.clients]: [{ id: 'a', username: 'Alice', profileFetchedAt: 0 }] });
+    const documentObject = new MiniDocument();
+    const sidebar = documentObject.createElement('div'); sidebar.className = 'CreatorSidebar__Container';
+    const footer = documentObject.createElement('div'); footer.className = 'CreatorSidebar__SidebarFooter';
+    sidebar.append(footer); documentObject.body.append(sidebar);
+    let signal = null;
+    const fetchImpl = (_url, options) => new Promise((_resolve, reject) => {
+        signal = options.signal;
+        signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+    });
+    const runtime = new FrequentClientsRuntime({ repository: repo, chat: { openUser() {} }, documentObject, MutationObserverClass: null, fetchImpl });
+    runtime.mount();
+    await flush();
+    assert.ok(signal);
+    assert.equal(signal.aborted, false);
+    runtime.unmount();
+    assert.equal(signal.aborted, true);
+    await flush();
+    assert.equal(repo.read().clients[0].userID, '');
+    assert.equal(runtime.abortController, null);
 });
 
 test('Iteration 3 L2: Settings IA keeps Chat, Frequent Clients and Diagnostics responsibilities separate', () => {

@@ -2347,7 +2347,7 @@ ${summary}
             runtime.#event("http.request", { method: String(method).toUpperCase(), kind: classification.kind, cid: classification.cid, reason });
             const result = nativeFetch.apply(this, arguments);
             Promise.resolve(result).then(async (response) => {
-              const raw = await responseJSON(response);
+              const raw = classification.kind === "message" ? await responseJSON(response) : null;
               runtime.#finish(classification, response?.ok, raw, boundary);
               runtime.#event("http.response", { status: response?.status, kind: classification.kind, cid: classification.cid });
             }, (error) => runtime.#event("http.error", { kind: classification.kind, name: error?.name || "Error" }));
@@ -2376,9 +2376,11 @@ ${summary}
             runtime.#event("http.request", { method: String(meta.method || "GET").toUpperCase(), kind: classification.kind, cid: classification.cid, reason });
             const onLoad = () => {
               let raw = null;
-              try {
-                raw = xhr.responseType === "json" ? xhr.response : JSON.parse(xhr.responseText || "null");
-              } catch {
+              if (classification.kind === "message") {
+                try {
+                  raw = xhr.responseType === "json" ? xhr.response : JSON.parse(xhr.responseText || "null");
+                } catch {
+                }
               }
               runtime.#finish(classification, xhr.status >= 200 && xhr.status < 300, raw, boundary);
               runtime.#event("http.response", { status: xhr.status, kind: classification.kind, cid: classification.cid });
@@ -3038,12 +3040,14 @@ ${summary}
     node.textContent = text;
     return node;
   };
+  var abortError = () => Object.assign(new Error("Frequent Client refresh aborted"), { name: "AbortError" });
   var FrequentClientsRuntime = class {
-    constructor({ repository, chat, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, fetchImpl = globalThis.fetch, hostResolver } = {}) {
+    constructor({ repository, chat, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, AbortControllerClass = documentObject?.defaultView?.AbortController || globalThis.AbortController, fetchImpl = globalThis.fetch, hostResolver } = {}) {
       this.repository = repository;
       this.chat = chat;
       this.documentObject = documentObject;
       this.MutationObserverClass = MutationObserverClass;
+      this.AbortControllerClass = AbortControllerClass;
       this.fetchImpl = fetchImpl;
       this.hostResolver = hostResolver || ((root) => {
         const legacyFooter = root?.matches?.(LEGACY_FOOTER_SELECTOR) ? root : root?.querySelector?.(LEGACY_FOOTER_SELECTOR);
@@ -3060,12 +3064,15 @@ ${summary}
       this.settleTimer = null;
       this.unsubscribe = null;
       this.refreshing = false;
+      this.refreshOperation = 0;
+      this.abortController = null;
       this.mounted = false;
       this.style = null;
     }
     mount() {
       if (this.mounted) return false;
       this.mounted = true;
+      this.abortController = this.AbortControllerClass ? new this.AbortControllerClass() : null;
       this.style = this.documentObject.createElement?.("style") || null;
       if (this.style) {
         this.style.dataset.vgenNyaUi = "frequent-clients-style";
@@ -3278,33 +3285,39 @@ ${summary}
       if (from >= 0 && to >= 0) this.repository.reorderClient(from, to);
     };
     async refreshStale(force = false) {
-      if (this.refreshing) return;
+      if (this.refreshing || !this.mounted) return;
+      const operation = ++this.refreshOperation;
+      const signal = this.abortController?.signal;
       const clients = this.repository.read().clients;
       const pending = clients.filter((client) => force || Date.now() - client.profileFetchedAt >= PROFILE_CACHE_MS);
       this.refreshing = true;
       try {
         for (let index = 0; index < pending.length; index += 3) {
-          await Promise.allSettled(pending.slice(index, index + 3).map((client) => this.refreshClient(client.id, force)));
+          if (signal?.aborted) break;
+          await Promise.allSettled(pending.slice(index, index + 3).map((client) => this.refreshClient(client.id, force, { signal })));
         }
       } finally {
-        this.refreshing = false;
+        if (this.refreshOperation === operation) this.refreshing = false;
       }
     }
-    async refreshClient(id, force = false) {
+    async refreshClient(id, force = false, { signal = this.abortController?.signal } = {}) {
       const clients = this.repository.read().clients;
       const client = clients.find((item) => item.id === id);
       if (!client || !force && Date.now() - client.profileFetchedAt < PROFILE_CACHE_MS) return client;
       const api = async (path) => {
-        const response = await this.fetchImpl(`https://api.vgen.co${path}`, { headers: { "v-client-id": "vgen-web" } });
+        if (signal?.aborted) throw abortError();
+        const response = await this.fetchImpl(`https://api.vgen.co${path}`, { headers: { "v-client-id": "vgen-web" }, signal });
         if (!response.ok) throw new Error(`VGen API ${response.status}`);
         return response.json();
       };
       const profile = await api(`/user/${encodeURIComponent(client.username)}`);
+      if (signal?.aborted) throw abortError();
       if (!profile?.userID) throw new Error("user-profile-unavailable");
       const [services, showcases] = await Promise.allSettled([
         api(`/commission/services/${encodeURIComponent(profile.userID)}`),
         api(`/discoverability/portfolio/showcases/${encodeURIComponent(profile.userID)}?limit=1&verifyAge=true`)
       ]);
+      if (signal?.aborted) throw abortError();
       Object.assign(client, {
         userID: String(profile.userID),
         username: String(profile.username || client.username),
@@ -3337,6 +3350,10 @@ ${summary}
     }
     unmount() {
       if (!this.mounted) return false;
+      this.refreshOperation += 1;
+      this.refreshing = false;
+      this.abortController?.abort();
+      this.abortController = null;
       this.observer?.disconnect();
       this.observer = null;
       this.hostObserver?.disconnect();
