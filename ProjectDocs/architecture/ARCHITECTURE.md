@@ -49,6 +49,13 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 - VGen Adapter 从已识别 DOM 控件向父 Fiber 有界查找；正常运行不得遍历 Fiber child/sibling 子树。
 - 日常 Upload preset 导入导出与 Legacy Migration envelope 是两个独立协议。
 
+## Chat Runtime / UI 边界
+
+- Chat session 只装饰已确认的当前 `.str-chat__channel`；稳定 Modal 内 channel root 替换时刷新同一 session，Overlay 离开时清理 observer、listener 与临时 UI。
+- Read Control 必需的最小 fetch interception 与按需 Diagnostics hook 分离；Diagnostics 停止必须恢复其 WebSocket、EventSource、XHR 与 fetch 包装，不得关闭仍被 Read Control 使用的 hook。
+- `●/✓`、Bubble 内状态长条、seen 与 timestamp 是相互独立的展示层；状态长条参与 Bubble 正常布局流，以适应翻译扩展造成的动态高度。
+- UI parity 是各迁移模块的 Merge Gate；跨模块统一视觉由 Stable Release 前的 `UI-FINAL-POLISH-01` 收口，Architecture 不固化具体像素值。
+
 ## 关键约束
 
 - Discovery/Search Tags 保持独立语义，不塞入文本预设模型。

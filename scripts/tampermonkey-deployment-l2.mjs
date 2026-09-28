@@ -413,7 +413,9 @@ async function probeUploadLivePage() {
 }
 
 async function chatLivePage() {
-    const page = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    const targetId = process.env.VGEN_NYA_CHAT_TARGET_ID;
+    const targetUrl = process.env.VGEN_NYA_CHAT_TARGET_URL || 'https://vgen.co/';
+    const page = (await targets()).find((target) => target.type === 'page' && (targetId ? target.id === targetId : target.url.startsWith(targetUrl)));
     if (!page) throw new Error('The VGen live-test page is not open');
     return page;
 }
@@ -459,7 +461,7 @@ async function probeChatLive() {
             previews: previews.slice(0, 30).map((node, index) => ({
                 index,
                 text: (node.innerText || '').trim().slice(0, 300),
-                unread: Boolean(node.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [data-testid*="unread"]')),
+                unread: Boolean(node.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [class*="UnreadDot"], [data-testid*="unread"]')),
                 className: String(node.className || ''),
             })),
             messageCount: messages.length,
@@ -492,7 +494,7 @@ async function selectChatLiveConversation() {
         const cards = list ? [...list.querySelectorAll('[class*="ChatChannelListPreview__PossiblyWithDivider"]')] : [];
         const card = cards[${JSON.stringify(index)}];
         if (!card) return { clicked: false, count: cards.length };
-        const unread = Boolean(card.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [data-testid*="unread"]'));
+        const unread = Boolean(card.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [class*="UnreadDot"], [data-testid*="unread"]'));
         if (unread) return { clicked: false, count: cards.length, blockedUnread: true };
         const target = card.querySelector('[class*="ChatChannelListPreview__Container"]') || card;
         const rect = target.getBoundingClientRect();
@@ -535,7 +537,7 @@ async function cycleChatLiveOverlay() {
             if (!clicked) throw new Error('Native Messages trigger disappeared');
             await waitForExpression(page, `document.querySelector('[class*="ChatChannelListPreview__PossiblyWithDivider"]')?.getBoundingClientRect().width > 0`, 8_000);
             const card = await evaluate(page, `(() => { const node = document.querySelector('[class*="ChatChannelListPreview__PossiblyWithDivider"]');
-                if (node?.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [data-testid*="unread"]')) return null;
+                if (node?.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [class*="UnreadDot"], [data-testid*="unread"]')) return null;
                 const target = node?.querySelector('[class*="ChatChannelListPreview__Container"]') || node;
                 const rect = target?.getBoundingClientRect(); return rect ? { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 36) } : null; })()`);
             if (!card) throw new Error('A safe existing conversation was not found');
@@ -595,6 +597,8 @@ async function summarizeChatLive() {
         const metas = [...document.querySelectorAll('[data-vgen-nya-ui="chat-meta"]')];
         const groups = [...document.querySelectorAll('.str-chat__message-bubble-group')];
         const reactions = [...document.querySelectorAll('[data-vgen-nya-compact-reactions="true"]')];
+        const statusBars = [...document.querySelectorAll('[data-vgen-nya-ui="chat-status-bar"]')];
+        const readMarkers = [...document.querySelectorAll('[data-vgen-nya-ui="read-marker"]')];
         const latest = [...document.querySelectorAll('button[class*="JumpToPresentButton__Anchor"]')];
         return {
             streamRoots: document.querySelectorAll('.str-chat').length,
@@ -605,6 +609,17 @@ async function summarizeChatLive() {
             duplicateMetaGroups: groups.filter((group) => group.querySelectorAll(':scope > [data-vgen-nya-ui="chat-meta"]').length > 1).length,
             reactions: reactions.length,
             reactionButtonsRemainNative: reactions.every((node) => node.querySelector('button')),
+            statusBars: statusBars.length,
+            statusBarStates: statusBars.reduce((result, node) => {
+                const key = (node.dataset.direction || 'unknown') + ':' + (node.dataset.status || 'unknown');
+                result[key] = (result[key] || 0) + 1;
+                return result;
+            }, {}),
+            statusBarsInBubbleFlow: statusBars.every((node) => node.parentElement?.classList.contains('str-chat__message-bubble')
+                && getComputedStyle(node).position === 'static'),
+            readMarkers: readMarkers.length,
+            duplicateStatusBars: [...document.querySelectorAll('.str-chat__message-bubble')]
+                .filter((bubble) => bubble.querySelectorAll(':scope > [data-vgen-nya-ui="chat-status-bar"]').length > 1).length,
             latestButtons: latest.length,
             latestMarked: latest.filter((node) => node.dataset.vgenNyaNativeLatest === 'true').length,
             assistantStyles: document.querySelectorAll('style[data-vgen-nya-ui="chat-style"]').length,
@@ -1612,7 +1627,9 @@ async function probeTampermonkeyAction() {
 
 async function openTampermonkeyPopupForVGen() {
     const allTargets = await targets();
-    const vgen = allTargets.find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    const targetId = process.env.VGEN_NYA_CHAT_TARGET_ID;
+    const targetUrl = process.env.VGEN_NYA_CHAT_TARGET_URL || 'https://vgen.co/creator/portfolio';
+    const vgen = allTargets.find((target) => target.type === 'page' && (targetId ? target.id === targetId : target.url.startsWith(targetUrl)));
     const worker = allTargets.find((target) => target.type === 'service_worker' && target.url.includes('dhdgffkkebhmkfjojejmpbldmpobfkfo'));
     if (!vgen || !worker) throw new Error('VGen page or Tampermonkey service worker is unavailable');
     await bringToFront(vgen);
@@ -1638,7 +1655,9 @@ async function openTampermonkeyPopupForVGen() {
 
 async function invokeVGenToolNyaSettingsCommand() {
     const popup = (await targets()).find((target) => target.type === 'page' && target.url.includes('action.html'));
-    const vgen = (await targets()).find((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/portfolio'));
+    const targetId = process.env.VGEN_NYA_CHAT_TARGET_ID;
+    const targetUrl = process.env.VGEN_NYA_CHAT_TARGET_URL || 'https://vgen.co/creator/portfolio';
+    const vgen = (await targets()).find((target) => target.type === 'page' && (targetId ? target.id === targetId : target.url.startsWith(targetUrl)));
     if (!popup || !vgen) throw new Error('Tampermonkey popup or VGen page is unavailable');
     const clicked = await evaluate(popup, `(() => {
         const leaf = [...document.querySelectorAll('*')].find((node) => node.children.length === 0 && node.textContent.includes('设置'));

@@ -7,6 +7,7 @@ export const CHAT_DEFAULTS = Object.freeze({
     reactionMarkRead: false,
     showSeen: true,
     showTimestamps: true,
+    showStatusBar: true,
     compactReactions: true,
 });
 
@@ -29,6 +30,7 @@ export function normalizeChatSettings(value = {}) {
         reactionMarkRead: Boolean(raw.reactionMarkRead),
         showSeen: raw.showSeen !== false,
         showTimestamps: raw.showTimestamps !== false,
+        showStatusBar: raw.showStatusBar !== false,
         compactReactions: raw.compactReactions !== false,
     };
 }

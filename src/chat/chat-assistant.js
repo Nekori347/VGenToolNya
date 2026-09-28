@@ -5,9 +5,12 @@ const CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-port
 const CHAT_CSS = `
 .vgen-nya-chat-meta{display:flex!important;align-items:center;justify-content:space-between;gap:20px;width:100%;padding-top:3px;font:11px/18px system-ui,sans-serif;opacity:.72;user-select:text;pointer-events:auto}
 .vgen-nya-chat-time{margin-left:auto;white-space:nowrap}
-.str-chat__message-bubble:has(>.vgen-nya-read-marker){position:relative!important;overflow:visible!important}
+.str-chat__message-bubble:has(>.vgen-nya-read-marker),.str-chat__message-bubble:has(>.vgen-nya-state-bar){position:relative!important;overflow:visible!important}
+.str-chat__message-bubble:has(>.vgen-nya-state-bar){display:flex!important;flex-direction:column!important;height:auto!important}
+.vgen-nya-state-bar{position:static!important;display:block!important;flex:0 0 2px!important;width:38px!important;height:2px!important;min-height:2px!important;margin-left:auto!important;border-radius:999px;background:#3bdfbc;opacity:.82;pointer-events:none}
+.vgen-nya-state-bar[data-status="unread"]{background:#ff6476}.vgen-nya-state-bar[data-direction="outgoing"]{order:-1;margin-top:1px;margin-bottom:4px}.vgen-nya-state-bar[data-direction="incoming"]{order:2147483647;margin-top:4px;margin-bottom:1px}
 .vgen-nya-read-marker{position:absolute!important;right:-8px;z-index:30;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:transparent;color:#3bdfbc;font:bold 16px/20px system-ui;filter:drop-shadow(0 1px 1px #0007)}
-.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476;cursor:pointer}
+.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover,.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
 [data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
 [data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
 `;

@@ -148,7 +148,7 @@ export function createChatSettingsNavigation(repository, diagnostics, baseNaviga
             ...item,
             tabs: [
                 { id: 'display', label: '聊天显示', sections: [{ id: 'display', title: 'Seen / 时间戳 / Reaction', render: renderChat(repository, [
-                    ['enabled', '启用 Chat Assistant'], ['showSeen', '显示 seen'], ['showTimestamps', '显示时间戳'], ['compactReactions', '紧凑 Reaction'],
+                    ['enabled', '启用 Chat Assistant'], ['showSeen', '显示 seen'], ['showTimestamps', '显示时间戳'], ['showStatusBar', '显示气泡状态长条'], ['compactReactions', '紧凑 Reaction'],
                 ]) }] },
                 { id: 'read-control', label: '已读控制', sections: [{ id: 'read-control', title: '服务器已读边界', render: renderChat(repository, [
                     ['keepUnread', '保持服务器未读，手动释放'], ['reactionMarkRead', 'Reaction 成功后标记已读'],

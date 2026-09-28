@@ -13,8 +13,11 @@
 - 订单助手：Copy ID、Copy Profile URL、低星提醒（rating<5）。
 - 评价助手：OpenAI Compatible，英文+中文对照，可复制/填入，不自动提交，防重复生成。
 - 聊天助手：保留 read/seen/timestamp/reaction，统一 `Chat.openUser(...)` 入口，未来全文搜索。
+- 模块完成采用双状态：业务行为 `FUNCTIONAL` 与交付视觉 `UI_POLISHED`；功能可先以 Demo UI 开发，但 Merge Gate 前必须完成对应 UI parity。
+- Chat read 状态同时支持独立的 Bubble 内状态长条视觉层；该开关不得改变 `●/✓`、seen、timestamp 或 server read 逻辑，并必须兼容双语内容造成的动态高度。
 - 性能是硬性产品要求：禁止整页 MutationObserver + 整页 querySelectorAll 作为默认架构。
 - 飞书属于 Future Adapter，当前不实现。
+- 第一次 Stable Release 前必须执行 `UI-FINAL-POLISH-01`，统一 Upload、Chat、Frequent Clients、Order、Review 与 Settings 的圆角、间距、层级、状态色和深浅主题；优先作为 VGen 原生视觉增强。
 
 ## 发布与更新（正式产品需求）
 

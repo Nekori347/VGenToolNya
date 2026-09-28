@@ -2,12 +2,13 @@ const PROFILE_CACHE_MS = 6 * 60 * 60 * 1000;
 const LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
 const MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
 const CLIENTS_CSS = `
-.vgen-nya-clients{margin:10px 8px;border:1px solid #6f8588;border-radius:10px;overflow:hidden;background:#13252bdd;color:#eef8f7;font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
-.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #ffffff22}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{border:0;border-radius:5px;background:#ffffff18;color:inherit;cursor:pointer}
-.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-size:cover;background-position:center;border-bottom:1px solid #ffffff18}
+.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{border:0;border-radius:5px;background:var(--nya-clients-control);color:inherit;cursor:pointer}
+.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
 .vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;font-size:10px;pointer-events:none}
 .vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;margin-left:10px;color:inherit;text-decoration:none}.vgen-nya-clients__primary{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{opacity:.7;font-size:10px}.vgen-nya-clients__notice{margin-left:5px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700}.vgen-nya-clients__empty{padding:10px;opacity:.75}
+@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
 `;
 
 const latestDate = (items, fields) => (items || []).reduce((latest, item) => {
@@ -39,6 +40,9 @@ export class FrequentClientsRuntime {
         this.panel = null;
         this.host = null;
         this.observer = null;
+        this.hostObserver = null;
+        this.probes = new Map();
+        this.settleTimer = null;
         this.unsubscribe = null;
         this.refreshing = false;
         this.mounted = false;
@@ -61,11 +65,19 @@ export class FrequentClientsRuntime {
         if (this.MutationObserverClass && this.documentObject?.body) {
             this.observer = new this.MutationObserverClass((records) => {
                 for (const record of records) {
-                    for (const node of record.removedNodes || []) if (node === this.host || node.contains?.(this.host)) this.#removePanel();
-                    for (const node of record.addedNodes || []) if (!this.panel) this.#mountIn(node);
+                    for (const node of record.removedNodes || []) {
+                        if (node === this.host || node.contains?.(this.host)) this.#removePanel();
+                        for (const root of this.probes.keys()) if (node === root || node.contains?.(root)) this.#releaseProbe(root);
+                    }
+                    for (const node of record.addedNodes || []) if (!this.panel) this.#probe(node);
                 }
             });
             this.observer.observe(this.documentObject.body, { childList: true });
+            for (const node of this.documentObject.body.children || []) if (!this.panel) this.#probe(node);
+            if (!this.panel) this.settleTimer = globalThis.setTimeout(() => {
+                this.settleTimer = null;
+                this.sync();
+            }, 1500);
         }
         return true;
     }
@@ -78,6 +90,7 @@ export class FrequentClientsRuntime {
             this.#removePanel();
             return;
         }
+        if (this.panel?.isConnected === false || this.host?.isConnected === false || (this.host && !this.host.parentElement)) this.#removePanel();
         if (!this.panel) this.#mountIn(this.documentObject);
         if (this.panel) this.render();
     }
@@ -98,9 +111,47 @@ export class FrequentClientsRuntime {
         this.panel.addEventListener('drop', this.#onDrop);
         if (before && typeof host.insertBefore === 'function') host.insertBefore(this.panel, before);
         else host.append(this.panel);
+        const lifecycleRoot = host.parentElement || host;
+        if (this.MutationObserverClass && lifecycleRoot) {
+            this.hostObserver = new this.MutationObserverClass(() => {
+                if (this.panel?.isConnected !== false && this.host?.isConnected !== false && this.host?.parentElement) return;
+                this.#removePanel();
+                this.sync();
+            });
+            this.hostObserver.observe(lifecycleRoot, { childList: true });
+        }
+        if (this.settleTimer !== null) globalThis.clearTimeout(this.settleTimer);
+        this.settleTimer = null;
+        this.#releaseProbes();
         this.render();
         void this.refreshStale();
         return true;
+    }
+
+    #probe(root) {
+        if (!root?.querySelector || this.panel || this.probes.has(root)) return false;
+        if (this.#mountIn(root)) return true;
+        if (!this.MutationObserverClass || this.probes.size >= 12) return false;
+        const observer = new this.MutationObserverClass(() => {
+            if (root.isConnected === false) this.#releaseProbe(root);
+            else if (this.#mountIn(root)) this.#releaseProbes();
+        });
+        observer.observe(root, { childList: true, subtree: true });
+        const timer = globalThis.setTimeout(() => this.#releaseProbe(root), 8000);
+        this.probes.set(root, { observer, timer });
+        return false;
+    }
+
+    #releaseProbe(root) {
+        const entry = this.probes.get(root);
+        if (!entry) return;
+        entry.observer.disconnect();
+        globalThis.clearTimeout(entry.timer);
+        this.probes.delete(root);
+    }
+
+    #releaseProbes() {
+        for (const root of [...this.probes.keys()]) this.#releaseProbe(root);
     }
 
     render() {
@@ -187,6 +238,9 @@ export class FrequentClientsRuntime {
     async #openQuickChat(clientId, button) {
         if (button.disabled) return;
         button.disabled = true;
+        const originalTitle = button.title;
+        button.dataset.vgenNyaQuickChatStatus = 'loading';
+        delete button.dataset.vgenNyaQuickChatError;
         try {
             let client = this.repository.read().clients.find((item) => item.id === clientId);
             if (!client?.userID) {
@@ -194,6 +248,11 @@ export class FrequentClientsRuntime {
                 client = this.repository.read().clients.find((item) => item.id === clientId);
             }
             await this.chat.openUser(client);
+            button.dataset.vgenNyaQuickChatStatus = 'opened';
+        } catch (error) {
+            button.dataset.vgenNyaQuickChatStatus = 'error';
+            button.dataset.vgenNyaQuickChatError = String(error?.message || error || 'quick-chat-failed').slice(0, 120);
+            button.title = `${originalTitle} · 无法打开：${button.dataset.vgenNyaQuickChatError}`;
         } finally { button.disabled = false; }
     }
 
@@ -265,6 +324,8 @@ export class FrequentClientsRuntime {
 
     #removePanel() {
         if (!this.panel) return;
+        this.hostObserver?.disconnect();
+        this.hostObserver = null;
         this.panel.removeEventListener('click', this.#onClick);
         this.panel.removeEventListener('dragstart', this.#onDragStart);
         this.panel.removeEventListener('dragover', this.#onDragOver);
@@ -278,6 +339,11 @@ export class FrequentClientsRuntime {
         if (!this.mounted) return false;
         this.observer?.disconnect();
         this.observer = null;
+        this.hostObserver?.disconnect();
+        this.hostObserver = null;
+        if (this.settleTimer !== null) globalThis.clearTimeout(this.settleTimer);
+        this.settleTimer = null;
+        this.#releaseProbes();
         this.unsubscribe?.();
         this.unsubscribe = null;
         this.#removePanel();

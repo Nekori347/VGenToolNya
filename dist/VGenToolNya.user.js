@@ -2043,6 +2043,7 @@ ${summary}
     reactionMarkRead: false,
     showSeen: true,
     showTimestamps: true,
+    showStatusBar: true,
     compactReactions: true
   });
   var CLIENTS_DEFAULTS = Object.freeze({
@@ -2062,6 +2063,7 @@ ${summary}
       reactionMarkRead: Boolean(raw.reactionMarkRead),
       showSeen: raw.showSeen !== false,
       showTimestamps: raw.showTimestamps !== false,
+      showStatusBar: raw.showStatusBar !== false,
       compactReactions: raw.compactReactions !== false
     };
   }
@@ -2597,8 +2599,23 @@ ${summary}
     const roots = surface?.querySelectorAll?.('[class*="JumpToPresent"]') || [];
     return [...new Set([...roots].map((root) => root.matches?.("button") ? root : root.closest?.("button") || root.querySelector?.("button")).filter(Boolean))];
   }
+  function surfaceScore(node) {
+    if (!node || node.isConnected === false || node.hidden === true || node.getAttribute?.("aria-hidden") === "true") return -1;
+    const view = node.ownerDocument?.defaultView;
+    const style = view?.getComputedStyle?.(node);
+    if (style?.display === "none" || style?.visibility === "hidden") return -1;
+    const previews = node.querySelectorAll?.(PREVIEW_SELECTOR)?.length || 0;
+    const active = node.matches?.(CHAT_SESSION_SELECTOR) ? 1 : 0;
+    return previews * 100 + active + 1;
+  }
+  function findMessagesSurface(root) {
+    const candidates = [];
+    if (root?.matches?.(MESSAGES_SURFACE_SELECTOR)) candidates.push(root);
+    for (const node of root?.querySelectorAll?.(MESSAGES_SURFACE_SELECTOR) || []) candidates.push(node);
+    return [...new Set(candidates)].reduce((best, node) => surfaceScore(node) > surfaceScore(best) ? node : best, null);
+  }
   function waitForOverlay(documentObject, MutationObserverClass, timeout = 8e3) {
-    const existing = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+    const existing = findMessagesSurface(documentObject);
     if (existing) return Promise.resolve(existing);
     if (!MutationObserverClass || !documentObject.body) return Promise.reject(new Error("messages-overlay-unavailable"));
     return new Promise((resolve, reject) => {
@@ -2612,14 +2629,14 @@ ${summary}
         const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR) || root.querySelector?.(CHAT_PORTAL_SELECTOR);
         if (!likelyPortal) return;
         const local = new MutationObserverClass(() => {
-          const overlay2 = root.matches?.(MESSAGES_SURFACE_SELECTOR) ? root : root.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+          const overlay2 = findMessagesSurface(root);
           if (overlay2) finish(resolve, overlay2);
         });
         local.observe(root, { childList: true, subtree: true });
         probes.set(root, local);
       };
       const observer = new MutationObserverClass((records) => {
-        const overlay2 = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+        const overlay2 = findMessagesSurface(documentObject);
         if (overlay2) finish(resolve, overlay2);
         else for (const record of records || []) for (const node of record.addedNodes || []) probe(node);
       });
@@ -2673,7 +2690,7 @@ ${summary}
       const bubble = element2.querySelector?.(".str-chat__message-bubble") || element2;
       const group = bubble.closest?.(".str-chat__message-bubble-group") || bubble.parentElement || element2;
       const state = readStatus(channel, message);
-      const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps]);
+      const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps, settings.showStatusBar]);
       if (element2.dataset.vgenNyaChatSignature === signature) return;
       element2.dataset.vgenNyaChatSignature = signature;
       let row = group.querySelector?.(":scope > .vgen-nya-chat-meta");
@@ -2697,10 +2714,23 @@ ${summary}
         time.textContent = settings.showTimestamps && rawTime ? new Date(rawTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
         if (rawTime) time.setAttribute("datetime", rawTime);
       }
+      const hasStatus = state.status === "unread" || state.status === "read";
+      let bar = bubble.querySelector?.(":scope > .vgen-nya-state-bar");
+      if (settings.showStatusBar !== false && hasStatus && !bar) {
+        bar = this.documentObject.createElement("span");
+        bar.className = "vgen-nya-state-bar notranslate";
+        bar.dataset.vgenNyaUi = "chat-status-bar";
+        bar.translate = false;
+        bar.setAttribute("aria-hidden", "true");
+        bubble.append(bar);
+      }
+      if (bar && settings.showStatusBar !== false && hasStatus) {
+        bar.dataset.status = state.status;
+        bar.dataset.direction = state.direction;
+      } else bar?.remove();
       let marker = bubble.querySelector?.(":scope > .vgen-nya-read-marker");
-      const unread = settings.keepUnread && state.direction === "incoming" && state.status === "unread";
-      const read = state.status === "read";
-      if ((unread || read) && !marker) {
+      const canManualRead = settings.keepUnread && state.direction === "incoming" && state.status === "unread";
+      if (hasStatus && !marker) {
         marker = this.documentObject.createElement("button");
         marker.type = "button";
         marker.className = "vgen-nya-read-marker notranslate";
@@ -2709,16 +2739,17 @@ ${summary}
         marker.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (marker.dataset.status === "unread") manualRead();
+          if (marker.dataset.manual === "true") manualRead();
         });
         bubble.append(marker);
       }
-      if (marker && (unread || read)) {
-        marker.dataset.status = unread ? "unread" : "read";
+      if (marker && hasStatus) {
+        marker.dataset.status = state.status;
         marker.dataset.direction = state.direction;
-        marker.textContent = unread ? "●" : "✓";
-        marker.disabled = !unread;
-        marker.title = unread ? "未读 · 点击标记为已读" : state.direction === "outgoing" ? "对方已读" : "我已读";
+        marker.dataset.manual = String(canManualRead);
+        marker.textContent = state.status === "unread" ? "●" : "✓";
+        marker.disabled = !canManualRead;
+        marker.title = canManualRead ? "未读 · 点击标记为已读" : state.direction === "outgoing" ? state.status === "read" ? "对方已读" : "对方未读" : state.status === "read" ? "我已读" : "未读";
       } else marker?.remove();
     }
     #decorateReactions(settings) {
@@ -2739,13 +2770,15 @@ ${summary}
       return true;
     }
     cleanup() {
-      for (const node of this.surface?.querySelectorAll?.('[data-vgen-nya-ui="chat-meta"], [data-vgen-nya-ui="read-marker"]') || []) node.remove();
+      for (const selector of [".vgen-nya-chat-meta", ".vgen-nya-read-marker", ".vgen-nya-state-bar"]) {
+        for (const node of this.surface?.querySelectorAll?.(selector) || []) node.remove();
+      }
       for (const node of this.surface?.querySelectorAll?.("[data-vgen-nya-compact-reactions]") || []) delete node.dataset.vgenNyaCompactReactions;
     }
     static async openUser(target, { documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
       const userID = String(target?.userID || target?.userId || "").trim();
       if (!userID) throw new Error(target?.username ? "user-id-mapping-unavailable" : "invalid-user");
-      let overlay2 = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+      let overlay2 = findMessagesSurface(documentObject);
       if (!overlay2) {
         const trigger = findChatTrigger(documentObject);
         if (!trigger) throw new Error("native-messages-trigger-unavailable");
@@ -2756,16 +2789,23 @@ ${summary}
       for (const preview of previews) {
         const channel2 = reactValue(preview, "channel");
         if (!memberIds(channel2).includes(userID)) continue;
+        const nativeTarget = preview.matches?.('[class*="ChatChannelListPreview__Container"]') ? preview : preview.querySelector?.('[class*="ChatChannelListPreview__Container"]');
         const select2 = reactValue(preview, "setActiveChannel") || reactValue(preview, "onSelect");
-        if (typeof select2 === "function") await select2(channel2);
+        if (nativeTarget) nativeTarget.click?.();
+        else if (typeof select2 === "function") await select2(channel2);
         else preview.click?.();
         return { opened: true, cid: channelCid(channel2), existing: true };
       }
       const root = overlay2.querySelector?.(".str-chat") || overlay2;
       const activeChannel = reactValue(root, "channel");
+      if (memberIds(activeChannel).includes(userID)) {
+        return { opened: true, cid: channelCid(activeChannel), existing: true };
+      }
       const client = reactValue(root, "client") || activeChannel?.getClient?.();
       if (typeof client?.queryChannels !== "function") throw new Error("stream-client-unavailable");
-      const channels = await client.queryChannels({ type: "messaging", members: { $in: [userID] } }, [{ last_message_at: -1 }], { state: true, watch: true });
+      const selfId = String(client.userID || client.user?.id || "").trim();
+      const members = selfId ? { $eq: [selfId, userID] } : { $in: [userID] };
+      const channels = await client.queryChannels({ type: "messaging", members }, [{ last_message_at: -1 }], { state: true, watch: true });
       const channel = channels.find((item) => memberIds(item).includes(userID));
       if (!channel) throw new Error("existing-conversation-unavailable");
       const select = reactValue(root, "setActiveChannel") || reactValue(root, "onSelect");
@@ -2780,9 +2820,12 @@ ${summary}
   var CHAT_CSS = `
 .vgen-nya-chat-meta{display:flex!important;align-items:center;justify-content:space-between;gap:20px;width:100%;padding-top:3px;font:11px/18px system-ui,sans-serif;opacity:.72;user-select:text;pointer-events:auto}
 .vgen-nya-chat-time{margin-left:auto;white-space:nowrap}
-.str-chat__message-bubble:has(>.vgen-nya-read-marker){position:relative!important;overflow:visible!important}
+.str-chat__message-bubble:has(>.vgen-nya-read-marker),.str-chat__message-bubble:has(>.vgen-nya-state-bar){position:relative!important;overflow:visible!important}
+.str-chat__message-bubble:has(>.vgen-nya-state-bar){display:flex!important;flex-direction:column!important;height:auto!important}
+.vgen-nya-state-bar{position:static!important;display:block!important;flex:0 0 2px!important;width:38px!important;height:2px!important;min-height:2px!important;margin-left:auto!important;border-radius:999px;background:#3bdfbc;opacity:.82;pointer-events:none}
+.vgen-nya-state-bar[data-status="unread"]{background:#ff6476}.vgen-nya-state-bar[data-direction="outgoing"]{order:-1;margin-top:1px;margin-bottom:4px}.vgen-nya-state-bar[data-direction="incoming"]{order:2147483647;margin-top:4px;margin-bottom:1px}
 .vgen-nya-read-marker{position:absolute!important;right:-8px;z-index:30;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:transparent;color:#3bdfbc;font:bold 16px/20px system-ui;filter:drop-shadow(0 1px 1px #0007)}
-.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476;cursor:pointer}
+.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover,.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
 [data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
 [data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
 `;
@@ -2977,12 +3020,13 @@ ${summary}
   var LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
   var MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
   var CLIENTS_CSS = `
-.vgen-nya-clients{margin:10px 8px;border:1px solid #6f8588;border-radius:10px;overflow:hidden;background:#13252bdd;color:#eef8f7;font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
-.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #ffffff22}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{border:0;border-radius:5px;background:#ffffff18;color:inherit;cursor:pointer}
-.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-size:cover;background-position:center;border-bottom:1px solid #ffffff18}
+.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{border:0;border-radius:5px;background:var(--nya-clients-control);color:inherit;cursor:pointer}
+.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
 .vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;font-size:10px;pointer-events:none}
 .vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;margin-left:10px;color:inherit;text-decoration:none}.vgen-nya-clients__primary{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{opacity:.7;font-size:10px}.vgen-nya-clients__notice{margin-left:5px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700}.vgen-nya-clients__empty{padding:10px;opacity:.75}
+@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
 `;
   var latestDate = (items, fields) => (items || []).reduce((latest, item) => {
     const value = fields.map((field) => item?.[field]).find(Boolean);
@@ -3011,6 +3055,9 @@ ${summary}
       this.panel = null;
       this.host = null;
       this.observer = null;
+      this.hostObserver = null;
+      this.probes = /* @__PURE__ */ new Map();
+      this.settleTimer = null;
       this.unsubscribe = null;
       this.refreshing = false;
       this.mounted = false;
@@ -3032,11 +3079,19 @@ ${summary}
       if (this.MutationObserverClass && this.documentObject?.body) {
         this.observer = new this.MutationObserverClass((records) => {
           for (const record of records) {
-            for (const node of record.removedNodes || []) if (node === this.host || node.contains?.(this.host)) this.#removePanel();
-            for (const node of record.addedNodes || []) if (!this.panel) this.#mountIn(node);
+            for (const node of record.removedNodes || []) {
+              if (node === this.host || node.contains?.(this.host)) this.#removePanel();
+              for (const root of this.probes.keys()) if (node === root || node.contains?.(root)) this.#releaseProbe(root);
+            }
+            for (const node of record.addedNodes || []) if (!this.panel) this.#probe(node);
           }
         });
         this.observer.observe(this.documentObject.body, { childList: true });
+        for (const node of this.documentObject.body.children || []) if (!this.panel) this.#probe(node);
+        if (!this.panel) this.settleTimer = globalThis.setTimeout(() => {
+          this.settleTimer = null;
+          this.sync();
+        }, 1500);
       }
       return true;
     }
@@ -3048,6 +3103,7 @@ ${summary}
         this.#removePanel();
         return;
       }
+      if (this.panel?.isConnected === false || this.host?.isConnected === false || this.host && !this.host.parentElement) this.#removePanel();
       if (!this.panel) this.#mountIn(this.documentObject);
       if (this.panel) this.render();
     }
@@ -3067,9 +3123,44 @@ ${summary}
       this.panel.addEventListener("drop", this.#onDrop);
       if (before && typeof host.insertBefore === "function") host.insertBefore(this.panel, before);
       else host.append(this.panel);
+      const lifecycleRoot = host.parentElement || host;
+      if (this.MutationObserverClass && lifecycleRoot) {
+        this.hostObserver = new this.MutationObserverClass(() => {
+          if (this.panel?.isConnected !== false && this.host?.isConnected !== false && this.host?.parentElement) return;
+          this.#removePanel();
+          this.sync();
+        });
+        this.hostObserver.observe(lifecycleRoot, { childList: true });
+      }
+      if (this.settleTimer !== null) globalThis.clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+      this.#releaseProbes();
       this.render();
       void this.refreshStale();
       return true;
+    }
+    #probe(root) {
+      if (!root?.querySelector || this.panel || this.probes.has(root)) return false;
+      if (this.#mountIn(root)) return true;
+      if (!this.MutationObserverClass || this.probes.size >= 12) return false;
+      const observer = new this.MutationObserverClass(() => {
+        if (root.isConnected === false) this.#releaseProbe(root);
+        else if (this.#mountIn(root)) this.#releaseProbes();
+      });
+      observer.observe(root, { childList: true, subtree: true });
+      const timer = globalThis.setTimeout(() => this.#releaseProbe(root), 8e3);
+      this.probes.set(root, { observer, timer });
+      return false;
+    }
+    #releaseProbe(root) {
+      const entry = this.probes.get(root);
+      if (!entry) return;
+      entry.observer.disconnect();
+      globalThis.clearTimeout(entry.timer);
+      this.probes.delete(root);
+    }
+    #releaseProbes() {
+      for (const root of [...this.probes.keys()]) this.#releaseProbe(root);
     }
     render() {
       if (!this.panel) return;
@@ -3150,6 +3241,9 @@ ${summary}
     async #openQuickChat(clientId, button) {
       if (button.disabled) return;
       button.disabled = true;
+      const originalTitle = button.title;
+      button.dataset.vgenNyaQuickChatStatus = "loading";
+      delete button.dataset.vgenNyaQuickChatError;
       try {
         let client = this.repository.read().clients.find((item) => item.id === clientId);
         if (!client?.userID) {
@@ -3157,6 +3251,11 @@ ${summary}
           client = this.repository.read().clients.find((item) => item.id === clientId);
         }
         await this.chat.openUser(client);
+        button.dataset.vgenNyaQuickChatStatus = "opened";
+      } catch (error) {
+        button.dataset.vgenNyaQuickChatStatus = "error";
+        button.dataset.vgenNyaQuickChatError = String(error?.message || error || "quick-chat-failed").slice(0, 120);
+        button.title = `${originalTitle} · 无法打开：${button.dataset.vgenNyaQuickChatError}`;
       } finally {
         button.disabled = false;
       }
@@ -3226,6 +3325,8 @@ ${summary}
     }
     #removePanel() {
       if (!this.panel) return;
+      this.hostObserver?.disconnect();
+      this.hostObserver = null;
       this.panel.removeEventListener("click", this.#onClick);
       this.panel.removeEventListener("dragstart", this.#onDragStart);
       this.panel.removeEventListener("dragover", this.#onDragOver);
@@ -3238,6 +3339,11 @@ ${summary}
       if (!this.mounted) return false;
       this.observer?.disconnect();
       this.observer = null;
+      this.hostObserver?.disconnect();
+      this.hostObserver = null;
+      if (this.settleTimer !== null) globalThis.clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+      this.#releaseProbes();
       this.unsubscribe?.();
       this.unsubscribe = null;
       this.#removePanel();
@@ -3407,6 +3513,7 @@ ${summary}
             ["enabled", "启用 Chat Assistant"],
             ["showSeen", "显示 seen"],
             ["showTimestamps", "显示时间戳"],
+            ["showStatusBar", "显示气泡状态长条"],
             ["compactReactions", "紧凑 Reaction"]
           ]) }] },
           { id: "read-control", label: "已读控制", sections: [{ id: "read-control", title: "服务器已读边界", render: renderChat(repository, [

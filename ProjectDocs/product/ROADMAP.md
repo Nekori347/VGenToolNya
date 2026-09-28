@@ -44,6 +44,7 @@
 - 模型强度：Medium，性能回归 High
 
 ## Iteration 3 — 聊天现有功能修复 + 常用访问 Quick Chat
+- Status：**GATE PASS / NOT MERGED**（Chat Core / Read Core / Quick Chat / UI parity、自动化与 release check 通过；Reply Boundary 为非阻塞自然回归）
 - Goal：迁移小工具 read/seen/timestamp/reaction + Frequent Clients；重写 `Chat.openUser`
 - Modules：Chat Assistant、Frequent Clients
 - Non-goals：不做全文搜索、不做评价
@@ -51,6 +52,7 @@
 - Acceptance：read control 行为一致；Quick Chat 用统一入口打开现有会话
 - L1：read/seen/timestamp/reaction；L2：常用访问、Quick Chat
 - Browser 验证：真实聊天（只读观察）
+- UI Gate：`CHAT-UI-PARITY-01`；必须同时满足 `FUNCTIONAL = PASS` 与 `UI_POLISHED = PASS`
 - STOP：破坏真实已读状态
 - 模型强度：High（回归敏感）
 
@@ -108,3 +110,8 @@
 - Browser 验证：—
 - STOP：—（不接飞书）
 - 模型强度：Low/Medium
+
+## 后续 UI Parity / Stable Polish Gates
+
+- `UPLOAD-UI-PARITY-01`：后续定向核对旧 Quick Tag 的高亮、折叠/进度、剩余数量、点击区、主题、排序、刷新、黑名单与翻译兼容；不回溯扩大 Iteration 3。
+- `UI-FINAL-POLISH-01`：First Stable Release 前统一所有模块与 Settings 的设计语言；未通过时不得以“功能已完成”为由发布 Stable。

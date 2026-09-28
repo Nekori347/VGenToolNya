@@ -86,8 +86,27 @@ function jumpButtons(surface) {
     )).filter(Boolean))];
 }
 
+function surfaceScore(node) {
+    if (!node || node.isConnected === false || node.hidden === true || node.getAttribute?.('aria-hidden') === 'true') return -1;
+    const view = node.ownerDocument?.defaultView;
+    const style = view?.getComputedStyle?.(node);
+    if (style?.display === 'none' || style?.visibility === 'hidden') return -1;
+    const previews = node.querySelectorAll?.(PREVIEW_SELECTOR)?.length || 0;
+    const active = node.matches?.(CHAT_SESSION_SELECTOR) ? 1 : 0;
+    return (previews * 100) + active + 1;
+}
+
+function findMessagesSurface(root) {
+    const candidates = [];
+    if (root?.matches?.(MESSAGES_SURFACE_SELECTOR)) candidates.push(root);
+    for (const node of root?.querySelectorAll?.(MESSAGES_SURFACE_SELECTOR) || []) candidates.push(node);
+    return [...new Set(candidates)].reduce((best, node) => (
+        surfaceScore(node) > surfaceScore(best) ? node : best
+    ), null);
+}
+
 function waitForOverlay(documentObject, MutationObserverClass, timeout = 8000) {
-    const existing = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+    const existing = findMessagesSurface(documentObject);
     if (existing) return Promise.resolve(existing);
     if (!MutationObserverClass || !documentObject.body) return Promise.reject(new Error('messages-overlay-unavailable'));
     return new Promise((resolve, reject) => {
@@ -101,14 +120,14 @@ function waitForOverlay(documentObject, MutationObserverClass, timeout = 8000) {
             const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR) || root.querySelector?.(CHAT_PORTAL_SELECTOR);
             if (!likelyPortal) return;
             const local = new MutationObserverClass(() => {
-                const overlay = root.matches?.(MESSAGES_SURFACE_SELECTOR) ? root : root.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+                const overlay = findMessagesSurface(root);
                 if (overlay) finish(resolve, overlay);
             });
             local.observe(root, { childList: true, subtree: true });
             probes.set(root, local);
         };
         const observer = new MutationObserverClass((records) => {
-            const overlay = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+            const overlay = findMessagesSurface(documentObject);
             if (overlay) finish(resolve, overlay);
             else for (const record of records || []) for (const node of record.addedNodes || []) probe(node);
         });
@@ -168,7 +187,7 @@ export class StreamChatAdapter {
         const bubble = element.querySelector?.('.str-chat__message-bubble') || element;
         const group = bubble.closest?.('.str-chat__message-bubble-group') || bubble.parentElement || element;
         const state = readStatus(channel, message);
-        const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps]);
+        const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps, settings.showStatusBar]);
         if (element.dataset.vgenNyaChatSignature === signature) return;
         element.dataset.vgenNyaChatSignature = signature;
         let row = group.querySelector?.(':scope > .vgen-nya-chat-meta');
@@ -192,10 +211,24 @@ export class StreamChatAdapter {
             time.textContent = settings.showTimestamps && rawTime ? new Date(rawTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
             if (rawTime) time.setAttribute('datetime', rawTime);
         }
+        const hasStatus = state.status === 'unread' || state.status === 'read';
+        let bar = bubble.querySelector?.(':scope > .vgen-nya-state-bar');
+        if (settings.showStatusBar !== false && hasStatus && !bar) {
+            bar = this.documentObject.createElement('span');
+            bar.className = 'vgen-nya-state-bar notranslate';
+            bar.dataset.vgenNyaUi = 'chat-status-bar';
+            bar.translate = false;
+            bar.setAttribute('aria-hidden', 'true');
+            bubble.append(bar);
+        }
+        if (bar && settings.showStatusBar !== false && hasStatus) {
+            bar.dataset.status = state.status;
+            bar.dataset.direction = state.direction;
+        } else bar?.remove();
+
         let marker = bubble.querySelector?.(':scope > .vgen-nya-read-marker');
-        const unread = settings.keepUnread && state.direction === 'incoming' && state.status === 'unread';
-        const read = state.status === 'read';
-        if ((unread || read) && !marker) {
+        const canManualRead = settings.keepUnread && state.direction === 'incoming' && state.status === 'unread';
+        if (hasStatus && !marker) {
             marker = this.documentObject.createElement('button');
             marker.type = 'button';
             marker.className = 'vgen-nya-read-marker notranslate';
@@ -204,16 +237,17 @@ export class StreamChatAdapter {
             marker.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                if (marker.dataset.status === 'unread') manualRead();
+                if (marker.dataset.manual === 'true') manualRead();
             });
             bubble.append(marker);
         }
-        if (marker && (unread || read)) {
-            marker.dataset.status = unread ? 'unread' : 'read';
+        if (marker && hasStatus) {
+            marker.dataset.status = state.status;
             marker.dataset.direction = state.direction;
-            marker.textContent = unread ? '●' : '✓';
-            marker.disabled = !unread;
-            marker.title = unread ? '未读 · 点击标记为已读' : state.direction === 'outgoing' ? '对方已读' : '我已读';
+            marker.dataset.manual = String(canManualRead);
+            marker.textContent = state.status === 'unread' ? '●' : '✓';
+            marker.disabled = !canManualRead;
+            marker.title = canManualRead ? '未读 · 点击标记为已读' : state.direction === 'outgoing' ? (state.status === 'read' ? '对方已读' : '对方未读') : (state.status === 'read' ? '我已读' : '未读');
         } else marker?.remove();
     }
 
@@ -238,14 +272,16 @@ export class StreamChatAdapter {
     }
 
     cleanup() {
-        for (const node of this.surface?.querySelectorAll?.('[data-vgen-nya-ui="chat-meta"], [data-vgen-nya-ui="read-marker"]') || []) node.remove();
+        for (const selector of ['.vgen-nya-chat-meta', '.vgen-nya-read-marker', '.vgen-nya-state-bar']) {
+            for (const node of this.surface?.querySelectorAll?.(selector) || []) node.remove();
+        }
         for (const node of this.surface?.querySelectorAll?.('[data-vgen-nya-compact-reactions]') || []) delete node.dataset.vgenNyaCompactReactions;
     }
 
     static async openUser(target, { documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
         const userID = String(target?.userID || target?.userId || '').trim();
         if (!userID) throw new Error(target?.username ? 'user-id-mapping-unavailable' : 'invalid-user');
-        let overlay = documentObject.querySelector?.(MESSAGES_SURFACE_SELECTOR);
+        let overlay = findMessagesSurface(documentObject);
         if (!overlay) {
             const trigger = findChatTrigger(documentObject);
             if (!trigger) throw new Error('native-messages-trigger-unavailable');
@@ -256,16 +292,24 @@ export class StreamChatAdapter {
         for (const preview of previews) {
             const channel = reactValue(preview, 'channel');
             if (!memberIds(channel).includes(userID)) continue;
+            const nativeTarget = preview.matches?.('[class*="ChatChannelListPreview__Container"]')
+                ? preview : preview.querySelector?.('[class*="ChatChannelListPreview__Container"]');
             const select = reactValue(preview, 'setActiveChannel') || reactValue(preview, 'onSelect');
-            if (typeof select === 'function') await select(channel);
+            if (nativeTarget) nativeTarget.click?.();
+            else if (typeof select === 'function') await select(channel);
             else preview.click?.();
             return { opened: true, cid: channelCid(channel), existing: true };
         }
         const root = overlay.querySelector?.('.str-chat') || overlay;
         const activeChannel = reactValue(root, 'channel');
+        if (memberIds(activeChannel).includes(userID)) {
+            return { opened: true, cid: channelCid(activeChannel), existing: true };
+        }
         const client = reactValue(root, 'client') || activeChannel?.getClient?.();
         if (typeof client?.queryChannels !== 'function') throw new Error('stream-client-unavailable');
-        const channels = await client.queryChannels({ type: 'messaging', members: { $in: [userID] } }, [{ last_message_at: -1 }], { state: true, watch: true });
+        const selfId = String(client.userID || client.user?.id || '').trim();
+        const members = selfId ? { $eq: [selfId, userID] } : { $in: [userID] };
+        const channels = await client.queryChannels({ type: 'messaging', members }, [{ last_message_at: -1 }], { state: true, watch: true });
         const channel = channels.find((item) => memberIds(item).includes(userID));
         if (!channel) throw new Error('existing-conversation-unavailable');
         const select = reactValue(root, 'setActiveChannel') || reactValue(root, 'onSelect');
