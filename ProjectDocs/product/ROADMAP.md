@@ -44,7 +44,7 @@
 - 模型强度：Medium，性能回归 High
 
 ## Iteration 3 — 聊天现有功能修复 + 常用访问 Quick Chat
-- Status：**GATE PASS / NOT MERGED**（Chat Core / Read Core / Quick Chat / UI parity、自动化与 release check 通过；Reply Boundary 为非阻塞自然回归）
+- Status：**MERGED / COMPLETE**（PR #2 已以 merge commit `1f2be4c` 合并到 `main`；Chat Core / Read Core / Quick Chat / UI parity、自动化与 release check 通过；Reply Boundary 保持非阻塞自然回归）
 - Goal：迁移小工具 read/seen/timestamp/reaction + Frequent Clients；重写 `Chat.openUser`
 - Modules：Chat Assistant、Frequent Clients
 - Non-goals：不做全文搜索、不做评价
