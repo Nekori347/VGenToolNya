@@ -28,9 +28,12 @@
 22. **Remote Gate 不等于 Stable Release。** 首次源码 push 不创建 tag、Release 或 Tampermonkey update URL；Stable 通道只能在后续 First Release Gate 启用。
 23. **Upload portal 采用两级作用域生命周期。** body 只观察直属 portal 增删，Modal 内部重绘由单 session 局部观察；不恢复 documentElement/body subtree 扫描。
 24. **日常 preset 文件与迁移文件分离。** `vgen-nya.upload-presets` / 旧 `vgen-quick-presets` 仅用于用户日常 Upload preset；`vgen-nya.legacy-export` 只用于跨旧 userscript Migration。
-25. **模块完成区分 FUNCTIONAL 与 UI_POLISHED。** 迁移早期允许 Demo UI，但对应 Merge Gate 前必须完成 UI parity；不能用“功能可用”替代交付质量检查。
+25. **功能 Iteration Merge Gate 区分 FUNCTIONAL 与 UI_INTEGRATION_SAFE。** Merge 前要求功能通过，且 UI 不遮挡关键原生控件、不破坏点击/结构、无严重重叠并在 light/dark 下基本可读；像素级 `UI_POLISHED` 统一后移至 `UI-FINAL-POLISH-01`。
 26. **Chat 状态长条是独立视觉层。** 它必须位于 Bubble 正常布局流，outgoing 顶部、incoming 底部；开关不得联动关闭 `●/✓`、seen、timestamp 或 read control。
 27. **VGen 原生视觉优先。** 旧脚本提供成熟交互语义而非像素级模板；最终统一视觉以 VGen 原生层级、状态色、深浅主题与动态内容兼容为基准。
 28. **Text Preset Engine 使用共享 contract + Context Adapter。** 五个 Context 共享 collection/CRUD/排序/选择/导入导出能力，但各自拥有 serialize/deserialize/preview/validate/fill；统一 UI 不等于统一 payload。
 29. **Title / Description 不做无意义迁移。** Engine 直接桥接既有稳定键与数组对象；Description 的 Slate JSON 不 parse-and-reserialize，Combination 继续由 Upload 模块组合调用。
 30. **Preset apply 与业务提交永久分离。** Chat Quick Reply、Private Note、Final Delivery adapter 只可填入原生输入状态；禁止设计或调用自动 send/save/deliver/submit API。非空文本默认要求明确替换确认。
+31. **UI-FINAL-POLISH-01 是首次 Stable Release 的硬 Gate。** 所有功能 Iteration 完成后，必须定向审计两个只读旧附件的成熟 UX，统一 Design Tokens 与最终图标，并由用户人工视觉验收；自动化、无 overflow 或单实例不能替代该验收。
+32. **旧插件 UI 是 UX 参考而非像素模板。** 最终 Upload、Chat、Frequent Clients、Order、Review 与 Settings 必须像同一产品，并尽量延续 VGen 原生视觉；Emoji / Unicode 功能图标只能作为开发占位。
+33. **Client Background 按 Order Detail Panel 生命周期挂载。** 不以 `order.status === pending` 限制；所有能打开详情面板的订单状态共享同一入口。Iteration 5 不因架构命名扩大抓取范围，仍只处理已确认的公开评价、复制与缓存需求。

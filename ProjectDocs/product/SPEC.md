@@ -13,11 +13,14 @@
 - 订单助手：Copy ID、Copy Profile URL、低星提醒（rating<5）。
 - 评价助手：OpenAI Compatible，英文+中文对照，可复制/填入，不自动提交，防重复生成。
 - 聊天助手：保留 read/seen/timestamp/reaction，统一 `Chat.openUser(...)` 入口，未来全文搜索。
-- 模块完成采用双状态：业务行为 `FUNCTIONAL` 与交付视觉 `UI_POLISHED`；功能可先以 Demo UI 开发，但 Merge Gate 前必须完成对应 UI parity。
+- 功能 Iteration Merge Gate 采用双状态：业务行为 `FUNCTIONAL = PASS` 与集成安全 `UI_INTEGRATION_SAFE = PASS`。后者只要求不遮挡关键原生控件、不破坏点击/页面结构、无严重重叠，并在 light/dark 下基本可读；不代表最终视觉完成。
 - Chat read 状态同时支持独立的 Bubble 内状态长条视觉层；该开关不得改变 `●/✓`、seen、timestamp 或 server read 逻辑，并必须兼容双语内容造成的动态高度。
 - 性能是硬性产品要求：禁止整页 MutationObserver + 整页 querySelectorAll 作为默认架构。
 - 飞书属于 Future Adapter，当前不实现。
-- 第一次 Stable Release 前必须执行 `UI-FINAL-POLISH-01`，统一 Upload、Chat、Frequent Clients、Order、Review 与 Settings 的圆角、间距、层级、状态色和深浅主题；优先作为 VGen 原生视觉增强。
+- 第一次 Stable Release 前必须执行并由用户人工验收 `UI-FINAL-POLISH-01`，统一 Upload、Chat、Frequent Clients、Order、Review 与 Settings 的 radius、spacing、typography、按钮/图标、hover/active/disabled、状态色、背景层级和深浅主题；优先作为 VGen 原生视觉增强。无 overflow、单实例或自动化通过不能替代该视觉验收。
+- 最终功能图标必须统一使用 SVG、CSS icon 或统一 icon component；Emoji / Unicode 仅允许作为开发阶段占位。
+- `UI-FINAL-POLISH-01` 必须定向审计两个只读附件中的成熟 UX 细节，再形成统一 VGenToolNya Design System；旧 CSS 是参考基线，不要求 1:1 复制。
+- Client Background / Client Review Context 挂载于所有可打开的 Order / Commission Detail Panel，不按 pending 状态硬编码。Iteration 5 当前范围仍仅为 Copy Client ID、Copy Profile URL、公开 `<5` 星评价提醒/内容与合理缓存。
 
 ## 发布与更新（正式产品需求）
 

@@ -54,7 +54,13 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 - Chat session 只装饰已确认的当前 `.str-chat__channel`；稳定 Modal 内 channel root 替换时刷新同一 session，Overlay 离开时清理 observer、listener 与临时 UI。
 - Read Control 必需的最小 fetch interception 与按需 Diagnostics hook 分离；Diagnostics 停止必须恢复其 WebSocket、EventSource、XHR 与 fetch 包装，不得关闭仍被 Read Control 使用的 hook。
 - `●/✓`、Bubble 内状态长条、seen 与 timestamp 是相互独立的展示层；状态长条参与 Bubble 正常布局流，以适应翻译扩展造成的动态高度。
-- UI parity 是各迁移模块的 Merge Gate；跨模块统一视觉由 Stable Release 前的 `UI-FINAL-POLISH-01` 收口，Architecture 不固化具体像素值。
+- 各功能 Iteration Merge Gate 只要求 `UI_INTEGRATION_SAFE`：不遮挡、不破坏交互/结构、无严重重叠且基本可读。跨模块最终视觉由 Stable Release 前的 `UI-FINAL-POLISH-01` 收口并交由用户人工验收，Architecture 不固化具体像素值。
+
+## Order Detail / Client Background 边界
+
+- Client Background / Client Review Context 随任何可打开的 Order / Commission Detail Panel mount/unmount，不按 pending 或其他订单状态分叉挂载。
+- Iteration 5 的数据边界保持为公开 client identity/profile、公开评价与合理缓存；架构命名不授权额外抓取范围。
+- Live 调查仅允许只读打开详情。不得 Accept、Decline、改状态、发消息、保存 Private Note 或执行 Delivery。
 
 ## Text Preset Engine
 

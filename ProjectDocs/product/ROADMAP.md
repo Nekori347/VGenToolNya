@@ -44,7 +44,7 @@
 - 模型强度：Medium，性能回归 High
 
 ## Iteration 3 — 聊天现有功能修复 + 常用访问 Quick Chat
-- Status：**MERGED / COMPLETE**（PR #2 已以 merge commit `1f2be4c` 合并到 `main`；Chat Core / Read Core / Quick Chat / UI parity、自动化与 release check 通过；Reply Boundary 保持非阻塞自然回归）
+- Status：**MERGED / COMPLETE**（PR #2 已以 merge commit `1f2be4c` 合并到 `main`；Chat Core / Read Core / Quick Chat / UI integration、自动化与 release check 通过；Reply Boundary 保持非阻塞自然回归）
 - Goal：迁移小工具 read/seen/timestamp/reaction + Frequent Clients；重写 `Chat.openUser`
 - Modules：Chat Assistant、Frequent Clients
 - Non-goals：不做全文搜索、不做评价
@@ -52,7 +52,7 @@
 - Acceptance：read control 行为一致；Quick Chat 用统一入口打开现有会话
 - L1：read/seen/timestamp/reaction；L2：常用访问、Quick Chat
 - Browser 验证：真实聊天（只读观察）
-- UI Gate：`CHAT-UI-PARITY-01`；必须同时满足 `FUNCTIONAL = PASS` 与 `UI_POLISHED = PASS`
+- UI Gate：历史 `CHAT-UI-PARITY-01` 证据按 `UI_INTEGRATION_SAFE` 解释；Chat 最终视觉债务统一进入 `UI-FINAL-POLISH-01`
 - STOP：破坏真实已读状态
 - 模型强度：High（回归敏感）
 
@@ -66,17 +66,17 @@
 - L1：Private Note / Chat Quick Reply；L2：Title/Description 回归
 - Browser 验证：Private Note 输入区、聊天 composer
 - STOP：Final Delivery 需改变订单状态才能验证 → 记录 DELIVERY-LIVE-01
-- Live：`PRESET-LIVE-01 = PASS_CORE`、`TEXT-PRESET-UI-01 = PASS`；Private Note 为 `BLOCKED_AUTOSAVE_SAFETY`，Final Delivery 为 `BLOCKED_NEEDS_SAFE_ORDER_STATE`，两者均不得以真实客户写入换取验证
+- Live：`PRESET-LIVE-01 = PASS_CORE`、`TEXT-PRESET-UI-01 = PASS_INTEGRATION`；Private Note 为 `BLOCKED_AUTOSAVE_SAFETY`，Final Delivery 为 `BLOCKED_NEEDS_SAFE_ORDER_STATE`，两者均不得以真实客户写入换取验证
 - 模型强度：Medium
 
-## Iteration 5 — Order Assistant（Copy ID / URL / Review Warning）
-- Goal：订单详情挂 Copy ID/URL；客户低星提醒（缓存）
-- Modules：Order Assistant
+## Iteration 5 — Order Assistant（Copy ID / URL / Client Background）
+- Goal：所有可打开的 Order / Commission Detail Panel 挂 Copy Client ID / Profile URL 与公开低星评价提醒（缓存）
+- Modules：Order Assistant、Client Background / Client Review Context
 - Non-goals：不改订单状态、不接飞书
 - Dependencies：I1、I3
-- Acceptance：详情 client 区块可复制；rating<5 显示警告
-- L1：Copy ID/URL；L2：低星提醒+缓存
-- Browser 验证：订单详情侧栏
+- Acceptance：不受订单状态限制，详情 client 区块可复制；rating<5 显示风险提醒并可查看相关公开评价内容
+- L1：Copy Client ID / Profile URL；L2：公开评价提醒+合理缓存
+- Browser 验证：`ORDER-BACKGROUND-LIVE-01 = SAFE_TEST_SURFACE_AVAILABLE`；只读使用当前待接收订单详情，不 Accept/Decline、不改状态、不发消息、不保存 Note、不 Delivery
 - STOP：任何订单写操作
 - 模型强度：Medium
 
@@ -115,5 +115,6 @@
 
 ## 后续 UI Parity / Stable Polish Gates
 
-- `UPLOAD-UI-PARITY-01`：后续定向核对旧 Quick Tag 的高亮、折叠/进度、剩余数量、点击区、主题、排序、刷新、黑名单与翻译兼容；不回溯扩大 Iteration 3。
-- `UI-FINAL-POLISH-01`：First Stable Release 前统一所有模块与 Settings 的设计语言；未通过时不得以“功能已完成”为由发布 Stable。
+- 各功能 Iteration Merge 前只要求 `FUNCTIONAL = PASS` 与 `UI_INTEGRATION_SAFE = PASS`；像素精修、最终图标和跨模块统一视觉不在每轮重复完成。
+- `UPLOAD-UI-PARITY-01`：并入最终 Polish，定向核对旧 Quick Tag 的高亮、折叠/进度、剩余数量、点击区、主题、排序、刷新、黑名单与翻译兼容；不回溯重开 Iteration 2。
+- `UI-FINAL-POLISH-01`：所有功能 Iteration 后、First Stable Release 前，重新定向审计两个只读附件的 CSS/DOM/布局/状态交互，统一 Design Tokens、Icons、Bubble/Read Status/Reaction、Frequent Clients、Upload、Order、Review、Settings、responsive/overflow、light/dark 与 Immersive Translate。必须通过用户人工视觉验收，否则不得发布 Stable。
