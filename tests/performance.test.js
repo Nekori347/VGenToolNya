@@ -82,3 +82,23 @@ test('Iteration 2 L2: Upload runtime uses bounded ancestor Fiber access and a no
     assert.match(runtime, /observe\(this\.documentObject\.body, \{ childList: true \}\)/);
     assert.doesNotMatch(runtime, /observe\(this\.documentObject\.body, \{[^}]*subtree:\s*true/);
 });
+
+test('Iteration 4 L2: preset integrations add no polling, global subtree observer or submit API', async () => {
+    const files = [
+        'src/presets/text-preset-engine.js',
+        'src/chat/quick-reply.js',
+        'src/order/order-text-presets.js',
+    ];
+    for (const relativePath of files) {
+        const source = await readFile(path.join(projectRoot, relativePath), 'utf8');
+        assert.doesNotMatch(source, /setInterval\s*\(|requestAnimationFrame\s*\(/, relativePath);
+        assert.doesNotMatch(source, /querySelectorAll\s*\(\s*['"]\*['"]\s*\)/, relativePath);
+        assert.doesNotMatch(source, /(?:sendMessage|applyAndSend|applyAndSave|applyAndDeliver)\s*\(/, relativePath);
+        assert.doesNotMatch(source, /observe\([^\n]*documentElement/, relativePath);
+    }
+    const order = await readFile(path.join(projectRoot, 'src/order/order-text-presets.js'), 'utf8');
+    assert.match(order, /observe\(this\.documentObject\.body, \{ childList: true \}\)/);
+    assert.doesNotMatch(order, /observe\(this\.documentObject\.body, \{[^}]*subtree:\s*true/);
+    const entry = await readFile(path.join(projectRoot, 'src/userscript-entry.js'), 'utf8');
+    assert.doesNotMatch(entry, /core\.mountOrderTextPresets\(\)/, 'Private Note runtime must remain gated until autosave safety is verified');
+});

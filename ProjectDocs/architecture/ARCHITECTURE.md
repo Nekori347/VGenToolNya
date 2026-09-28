@@ -54,7 +54,21 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 - Chat session 只装饰已确认的当前 `.str-chat__channel`；稳定 Modal 内 channel root 替换时刷新同一 session，Overlay 离开时清理 observer、listener 与临时 UI。
 - Read Control 必需的最小 fetch interception 与按需 Diagnostics hook 分离；Diagnostics 停止必须恢复其 WebSocket、EventSource、XHR 与 fetch 包装，不得关闭仍被 Read Control 使用的 hook。
 - `●/✓`、Bubble 内状态长条、seen 与 timestamp 是相互独立的展示层；状态长条参与 Bubble 正常布局流，以适应翻译扩展造成的动态高度。
-- UI parity 是各迁移模块的 Merge Gate；跨模块统一视觉由 Stable Release 前的 `UI-FINAL-POLISH-01` 收口，Architecture 不固化具体像素值。
+- 各功能 Iteration Merge Gate 只要求 `UI_INTEGRATION_SAFE`：不遮挡、不破坏交互/结构、无严重重叠且基本可读。跨模块最终视觉由 Stable Release 前的 `UI-FINAL-POLISH-01` 收口并交由用户人工验收，Architecture 不固化具体像素值。
+
+## Order Detail / Client Background 边界
+
+- Client Background / Client Review Context 随任何可打开的 Order / Commission Detail Panel mount/unmount，不按 pending 或其他订单状态分叉挂载。
+- Iteration 5 的数据边界保持为公开 client identity/profile、公开评价与合理缓存；架构命名不授权额外抓取范围。
+- Live 调查仅允许只读打开详情。不得 Accept、Decline、改状态、发消息、保存 Private Note 或执行 Delivery。
+
+## Text Preset Engine
+
+- Engine 统一 collection、CRUD、排序、选择、preview 与带确认/回滚的 context export/import；五个 Context 使用独立 adapter 的 `serialize / deserialize / preview / validate / fill` contract。
+- Upload Title / Description 继续直接使用既有 `vgen-nya.title-presets.v1` 与 `vgen-nya.description-presets.v1`，不建立复制 schema；Description adapter 校验 Slate，但存储与填入均保留原始 JSON 字符串。
+- Chat Quick Reply、Private Note 与 Final Delivery 各使用独立 `vgen-nya.text-presets.*.v1` key。Context 间不得共享数组或把 Combination 摊平。损坏或非数组 collection 必须保持原值并拒绝后续 CRUD/import 覆盖。
+- Chat Quick Reply 复用 Chat session/composer lifecycle；Order Note 实现只使用 body 直属 child observer 与精确 Note target，但在 `PRIVATE-NOTE-LIVE-01` 确认 autosave 安全前不得从正式 userscript entry 激活。Final Delivery 未验证 selector 不进入正常 runtime detector。
+- Engine 与 Context Adapter 只提供 resolve + fill；API 不包含 send、save、deliver 或 submit。
 
 ## 关键约束
 

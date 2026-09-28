@@ -3,6 +3,9 @@ const MESSAGES_SURFACE_SELECTOR = '.str-chat__channel-list, .str-chat__channel';
 const CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
 const MESSAGE_SELECTOR = '.str-chat__message, .str-chat__message-simple';
 const PREVIEW_SELECTOR = '.str-chat__channel-preview, [data-testid*="channel-preview"], [class*="ChatChannelListPreview"]';
+const COMPOSER_SELECTOR = 'textarea.str-chat__textarea__textarea, textarea.str-chat__message-textarea, .str-chat__message-textarea textarea, .str-chat__message-textarea [contenteditable="true"], textarea[data-testid="message-input"], [contenteditable="true"][data-testid*="message-input"], [class*="MessageInput"] textarea, [class*="MessageInput"] [contenteditable="true"]';
+
+import { NativeTextTarget } from '../presets/native-text-target.js';
 
 function ownReactValue(element, prefix) {
     const key = Object.getOwnPropertyNames(element || {}).find((name) => name.startsWith(prefix));
@@ -163,6 +166,21 @@ export class StreamChatAdapter {
 
     conversationId() {
         return channelCid(this.findChannel());
+    }
+
+    findComposer() {
+        return this.surface?.querySelector?.(COMPOSER_SELECTOR) || null;
+    }
+
+    readComposer() {
+        const composer = this.findComposer();
+        return composer ? new NativeTextTarget(composer).read() : '';
+    }
+
+    fillComposer(payload, options) {
+        const composer = this.findComposer();
+        if (!composer) throw new Error('VGen Chat composer is not ready');
+        return new NativeTextTarget(composer).fillText(payload, options);
     }
 
     refresh({ settings, readGate, onManualRead } = {}) {

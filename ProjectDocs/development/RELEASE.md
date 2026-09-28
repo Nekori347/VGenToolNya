@@ -31,6 +31,8 @@
 
 1. 确认 GitHub owner、repository name、Public/Private，并建立 remote。
 2. 完成功能 Gate；运行 L1/L2/Deployment/性能回归。
+   - 每个功能 Iteration 的 Merge Gate 要求 `FUNCTIONAL = PASS` 与 `UI_INTEGRATION_SAFE = PASS`。
+   - First Stable Release 另要求 `UI-FINAL-POLISH-01 = PASS`，且必须包含用户人工视觉验收；自动化结果不能代替。
 3. 更新 `CHANGELOG.md`，将候选内容从 Unreleased 整理到目标版本。
 4. 只修改 `package.json.version` 提升 APP_VERSION；同步 lockfile。
 5. 配置真实 stable base URL 后运行 `npm run release:check:publish`。

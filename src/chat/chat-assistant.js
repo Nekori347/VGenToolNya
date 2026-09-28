@@ -1,4 +1,5 @@
 import { StreamChatAdapter } from './stream-chat-adapter.js';
+import { QuickReplyController } from './quick-reply.js';
 
 const CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
 
@@ -13,10 +14,11 @@ const CHAT_CSS = `
 .vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover,.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
 [data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
 [data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
+.vgen-nya-quick-replies,.vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-preset-chip[aria-pressed="true"]{border-color:#3b82f6;background:#dbeafe;color:#174b8a}.vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}
 `;
 
 export class ChatAssistantSession {
-    constructor({ surface, repository, readGate, adapter, MutationObserverClass = globalThis.MutationObserver } = {}) {
+    constructor({ surface, repository, readGate, adapter, textPresetEngine, MutationObserverClass = globalThis.MutationObserver } = {}) {
         this.surface = surface;
         this.repository = repository;
         this.readGate = readGate;
@@ -25,6 +27,7 @@ export class ChatAssistantSession {
         this.observer = null;
         this.cid = null;
         this.mounted = false;
+        this.quickReplies = textPresetEngine ? new QuickReplyController({ engine: textPresetEngine, adapter }) : null;
     }
 
     mount() {
@@ -37,7 +40,7 @@ export class ChatAssistantSession {
                     (record.addedNodes?.length || 0) > 0
                     && [...record.addedNodes].every((node) => node.dataset?.vgenNyaUi)
                 ));
-                if (onlyOwnInsertions) return;
+                if (onlyOwnInsertions || records.every((record) => this.quickReplies?.ownsMutation(record))) return;
                 this.refresh();
             });
             this.observer.observe(this.surface, { childList: true, subtree: true });
@@ -54,6 +57,7 @@ export class ChatAssistantSession {
             onManualRead: (cid, channel) => this.readGate.manualRelease(cid, (body) => channel.markRead?.(body)),
         });
         this.cid = result?.cid || null;
+        this.quickReplies?.refresh();
         return result;
     }
 
@@ -62,6 +66,7 @@ export class ChatAssistantSession {
         this.observer?.disconnect();
         this.observer = null;
         this.adapter.cleanup?.();
+        this.quickReplies?.cleanup();
         this.cid = null;
         this.mounted = false;
         return true;
@@ -69,13 +74,14 @@ export class ChatAssistantSession {
 }
 
 export class ChatAssistantRuntime {
-    constructor({ repository, readGate, networkHooks, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory } = {}) {
+    constructor({ repository, readGate, networkHooks, textPresetEngine, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory } = {}) {
         this.repository = repository;
         this.readGate = readGate;
         this.networkHooks = networkHooks;
         this.documentObject = documentObject;
         this.MutationObserverClass = MutationObserverClass;
         this.adapterFactory = adapterFactory || ((surface) => new StreamChatAdapter(surface, { documentObject, MutationObserverClass }));
+        this.textPresetEngine = textPresetEngine;
         this.sessions = new Map();
         this.probes = new Map();
         this.portalObserver = null;
@@ -146,7 +152,7 @@ export class ChatAssistantRuntime {
             if (this.sessions.has(surface) || !surface.isConnected) continue;
             if ([...this.sessions.keys()].some((existing) => existing.contains?.(surface))) continue;
             const adapter = this.adapterFactory(surface);
-            const session = new ChatAssistantSession({ surface, repository: this.repository, readGate: this.readGate, adapter, MutationObserverClass: this.MutationObserverClass });
+            const session = new ChatAssistantSession({ surface, repository: this.repository, readGate: this.readGate, adapter, textPresetEngine: this.textPresetEngine, MutationObserverClass: this.MutationObserverClass });
             session.mount();
             this.sessions.set(surface, session);
             mounted += 1;
