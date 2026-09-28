@@ -108,7 +108,7 @@ function profileHtml(userId, stats) {
     return `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(payload)}</script></body></html>`;
 }
 
-function reviewAdapter({ userId = '52bbac0b-074f-4f8d-b614-c33bbfcb4548', stats = null, pages = [[]], requests = [] }) {
+function reviewAdapter({ userId = '00000000-0000-0000-0000-000000000000', stats = null, pages = [[]], requests = [] }) {
     class Parser {
         parseFromString(html) {
             const match = html.match(/<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
@@ -232,12 +232,12 @@ test('Iteration 5 L1: cached client background does not refetch review entries',
 });
 
 test('Iteration 5 L1: extracts client user id and builds the verified entries endpoint', () => {
-    const payload = { props: { pageProps: { user: { userID: '52bbac0b-074f-4f8d-b614-c33bbfcb4548', clientReviewStats: { totalReviews: 3, totalNegativeReviews: 1 } } } } };
+    const payload = { props: { pageProps: { user: { userID: '00000000-0000-0000-0000-000000000000', clientReviewStats: { totalReviews: 3, totalNegativeReviews: 1 } } } } };
     const source = extractClientReviewSource(payload);
-    assert.equal(source.clientUserId, '52bbac0b-074f-4f8d-b614-c33bbfcb4548');
+    assert.equal(source.clientUserId, '00000000-0000-0000-0000-000000000000');
     assert.equal(source.clientReviewStats.totalNegativeReviews, 1);
     assert.equal(extractClientReviewSource({ props: { pageProps: {} } }), null);
-    assert.equal(clientReviewEntriesUrl('52bbac0b-074f-4f8d-b614-c33bbfcb4548'), 'https://api.vgen.co/discoverability/reviews/client/52bbac0b-074f-4f8d-b614-c33bbfcb4548');
+    assert.equal(clientReviewEntriesUrl('00000000-0000-0000-0000-000000000000'), 'https://api.vgen.co/discoverability/reviews/client/00000000-0000-0000-0000-000000000000');
     assert.equal(clientReviewEntriesUrl('bad'), '');
 });
 
