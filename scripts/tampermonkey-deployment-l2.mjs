@@ -23,6 +23,7 @@ class CDPClient {
         this.url = url;
         this.nextId = 1;
         this.pending = new Map();
+        this.listeners = new Map();
     }
 
     async connect() {
@@ -33,7 +34,10 @@ class CDPClient {
         });
         this.socket.addEventListener('message', (event) => {
             const message = JSON.parse(event.data);
-            if (!message.id) return;
+            if (!message.id) {
+                for (const listener of this.listeners.get(message.method) || []) listener(message.params || {});
+                return;
+            }
             const pending = this.pending.get(message.id);
             if (!pending) return;
             this.pending.delete(message.id);
@@ -41,6 +45,12 @@ class CDPClient {
             else pending.resolve(message.result);
         });
         return this;
+    }
+
+    on(method, listener) {
+        if (!this.listeners.has(method)) this.listeners.set(method, new Set());
+        this.listeners.get(method).add(listener);
+        return () => this.listeners.get(method)?.delete(listener);
     }
 
     send(method, params = {}) {
@@ -1229,6 +1239,484 @@ async function probeVGenTargetsSafe() {
     process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
 }
 
+async function orderLivePage() {
+    const targetId = process.env.VGEN_NYA_ORDER_TARGET_ID;
+    const pages = (await targets()).filter((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/creator/commissions'));
+    const page = targetId ? pages.find((target) => target.id === targetId) : pages[0];
+    if (!page) throw new Error('The isolated Commission test page is unavailable');
+    return page;
+}
+
+async function createOrderLivePage() {
+    const page = await newPage(`https://vgen.co/creator/commissions?nya-order-live=${Date.now()}`);
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    process.stdout.write(`${JSON.stringify({ targetId: page.id, url: 'https://vgen.co/creator/commissions?nya-order-live=SAFE' }, null, 2)}\n`);
+}
+
+const orderCardProbeExpression = `(() => {
+    const visible = (node) => { const rect = node?.getBoundingClientRect(); const style = node && getComputedStyle(node);
+        return Boolean(rect?.width && rect?.height && style?.display !== 'none' && style?.visibility !== 'hidden'); };
+    const selector = 'a[href*="commission"], [class*="CommissionCard"], [class*="commissionCard"]';
+    const heading = [...document.querySelectorAll('h1,h2,h3,h4,div,span')]
+        .find((node) => /^NEW$/i.test((node.textContent || '').trim()) && visible(node));
+    let scope = heading;
+    let candidates = [];
+    for (let depth = 0; scope && depth < 8; depth += 1, scope = scope.parentElement) {
+        const found = [...scope.querySelectorAll(selector)].filter(visible);
+        if (found.length) { candidates = found; break; }
+    }
+    const candidate = candidates[0];
+    const target = candidate?.closest?.('a,button,[role="button"]') || candidate;
+    const rect = target?.getBoundingClientRect();
+    return {
+        url: location.pathname + location.search,
+        orderStyleCount: document.querySelectorAll('[data-vgen-nya-ui="order-assistant-style"]').length,
+        orderRootCount: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length,
+        privateNotePresetCount: document.querySelectorAll('[data-vgen-nya-ui="private-note-presets"]').length,
+        newHeadingFound: Boolean(heading), candidateCount: candidates.length,
+        candidate: rect ? { tag: target.tagName, className: String(target.className || '').slice(0, 240),
+            x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 70) } : null,
+    };
+})()`;
+
+async function probeOrderLiveNeutral() {
+    const page = await orderLivePage();
+    const result = await evaluate(page, orderCardProbeExpression);
+    process.stdout.write(`${JSON.stringify({ targetId: page.id, ...result }, null, 2)}\n`);
+}
+
+async function openOrderLiveSafeDetail() {
+    const page = await orderLivePage();
+    const candidate = await evaluate(page, orderCardProbeExpression);
+    if (!candidate.newHeadingFound || !candidate.candidate) throw new Error('The authorized NEW commission card was not found');
+    const alreadyOpen = await evaluate(page, `document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length === 1`);
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    const requests = [];
+    const responses = new Map();
+    try {
+        client.on('Network.requestWillBeSent', ({ requestId, request, initiator }) => {
+            try {
+                const url = new URL(request.url);
+                if (url.hostname === 'vgen.co' || url.hostname === 'api.vgen.co') {
+                    requests.push({ requestId, method: request.method, url: request.url, initiator: initiator?.type || '' });
+                }
+            } catch { /* Ignore non-URL requests. */ }
+        });
+        client.on('Network.responseReceived', ({ requestId, response }) => responses.set(requestId, {
+            status: response.status, mimeType: response.mimeType, fromDiskCache: Boolean(response.fromDiskCache),
+        }));
+        await client.send('Network.enable');
+        await client.send('Runtime.enable');
+        await client.send('Browser.grantPermissions', { origin: 'https://vgen.co', permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] }).catch(() => {});
+        if (!alreadyOpen) {
+            await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: candidate.candidate.x, y: candidate.candidate.y, button: 'left', clickCount: 1 });
+            await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: candidate.candidate.x, y: candidate.candidate.y, button: 'left', clickCount: 1 });
+            await new Promise((resolve) => setTimeout(resolve, 3_000));
+        }
+        const details = await evaluate(page, `(async () => {
+            const initialRoot = document.querySelector('[data-vgen-nya-ui="order-assistant"]');
+            const rect = (node) => { const value = node?.getBoundingClientRect(); return value ? { x: value.x, y: value.y, width: value.width, height: value.height,
+                right: value.right, bottom: value.bottom } : null; };
+            const visible = (node) => { const value = rect(node); return Boolean(value?.width && value?.height); };
+            const panel = initialRoot?.closest('[class*="CommissionModal__Container"], [role="dialog"]');
+            const links = [...(panel || document).querySelectorAll('a[href]')].filter((node) => /^@[A-Za-z0-9_-]+$/.test((node.textContent || '').trim()))
+                .map((node) => { try { const url = new URL(node.href); return { node, url, handle: (node.textContent || '').trim() }; } catch { return null; } })
+                .filter((item) => item?.url.origin === 'https://vgen.co' && item.url.pathname.split('/').filter(Boolean).length === 1);
+            const identity = links[0];
+            const expectedUrl = identity ? 'https://vgen.co/' + encodeURIComponent(identity.handle.slice(1)) : '';
+            const buttons = initialRoot ? [...initialRoot.querySelectorAll('button')] : [];
+            const copyId = buttons.find((node) => node.dataset.action === 'copy-id');
+            const copyUrl = buttons.find((node) => node.dataset.action === 'copy-url');
+            let copyIdMatches = false; let copyUrlMatches = false; let clipboardReadable = false;
+            try {
+                copyId?.click(); await new Promise((resolve) => setTimeout(resolve, 120));
+                const copiedId = await navigator.clipboard.readText(); clipboardReadable = true; copyIdMatches = copiedId === identity?.handle;
+                copyUrl?.click(); await new Promise((resolve) => setTimeout(resolve, 120));
+                copyUrlMatches = (await navigator.clipboard.readText()) === expectedUrl;
+            } catch { /* Browser clipboard read permission may be unavailable. */ }
+            const root = document.querySelector('[data-vgen-nya-ui="order-assistant"]');
+            const currentButtons = root ? [...root.querySelectorAll('button')] : [];
+            const warning = currentButtons.find((node) => node.dataset.action === 'toggle-reviews' && /<5★/.test(node.textContent || ''));
+            const neutralReviews = currentButtons.find((node) => node.dataset.action === 'toggle-reviews' && !/<5★/.test(node.textContent || ''));
+            const statusText = root?.querySelector('.vgen-nya-order-assistant__status')?.textContent || '';
+            const criticalButtons = [...document.querySelectorAll('button')].filter((node) => /^(Accept|Decline)$/i.test((node.textContent || '').trim()) && visible(node));
+            const overlaps = (a, b) => a && b && a.x < b.right && a.right > b.x && a.y < b.bottom && a.bottom > b.y;
+            return {
+                assistantCount: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length,
+                styleCount: document.querySelectorAll('[data-vgen-nya-ui="order-assistant-style"]').length,
+                identityResolved: Boolean(identity), publicIdFormat: Boolean(identity && /^@[A-Za-z0-9_-]+$/.test(identity.handle)),
+                canonicalProfile: Boolean(identity && (identity.url.href.split(/[?#]/)[0].endsWith('/')
+                    ? identity.url.href.split(/[?#]/)[0].slice(0, -1) : identity.url.href.split(/[?#]/)[0]) === expectedUrl),
+                expectedProfilePath: identity ? '/' + encodeURIComponent(identity.handle.slice(1)) : '',
+                copyButtons: { id: Boolean(copyId), url: Boolean(copyUrl), clipboardReadable, copyIdMatches, copyUrlMatches },
+                background: { warningCount: warning ? 1 : 0, neutralReviewTrigger: Boolean(neutralReviews),
+                    status: /加载失败/.test(statusText) ? 'ERROR' : /不可用/.test(statusText) ? 'UNAVAILABLE' : /暂无/.test(statusText) ? 'EMPTY' : statusText ? 'LOADING' : 'LOADED' },
+                popoverCount: root?.querySelectorAll('.vgen-nya-order-assistant__popover').length || 0,
+                reviewBodyCount: root?.querySelectorAll('.vgen-nya-order-assistant__review-body').length || 0,
+                privateNotePresetCount: document.querySelectorAll('[data-vgen-nya-ui="private-note-presets"]').length,
+                finalDeliveryRoots: document.querySelectorAll('[data-vgen-nya-ui*="delivery"]').length,
+                layout: { root: rect(root), criticalButtonCount: criticalButtons.length,
+                    overlapsCritical: criticalButtons.some((node) => overlaps(rect(root), rect(node))),
+                    horizontalOverflow: Boolean(root && root.scrollWidth > root.clientWidth + 2) },
+            };
+        })()`);
+        const profilePath = details.expectedProfilePath;
+        const profileRequests = requests.filter((request) => {
+            try { const url = new URL(request.url); return url.origin === 'https://vgen.co' && url.pathname === profilePath; } catch { return false; }
+        });
+        const profileSchemas = [];
+        for (const request of profileRequests.filter((value) => value.method === 'GET')) {
+            try {
+                const { body } = await client.send('Network.getResponseBody', { requestId: request.requestId });
+                const script = body.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i)?.[1];
+                const value = script ? JSON.parse(script) : null;
+                const matches = [];
+                const seen = new Set();
+                const walk = (node, path = '$', depth = 0) => {
+                    if (!node || typeof node !== 'object' || depth > 18 || seen.has(node)) return;
+                    seen.add(node);
+                    for (const [key, child] of Object.entries(node)) {
+                        const nextPath = `${path}.${key}`;
+                        if (/review|rating|feedback/i.test(key)) matches.push({ path: nextPath, type: Array.isArray(child) ? 'array' : typeof child,
+                            length: Array.isArray(child) ? child.length : undefined });
+                        walk(child, nextPath, depth + 1);
+                    }
+                };
+                walk(value);
+                const clientReviewStats = value?.props?.pageProps?.user?.clientReviewStats;
+                profileSchemas.push({ ...responses.get(request.requestId), hasNextData: Boolean(value),
+                    nextDataKeys: value && typeof value === 'object' ? Object.keys(value).slice(0, 20) : [],
+                    clientReviewStats: clientReviewStats && typeof clientReviewStats === 'object'
+                        ? Object.fromEntries(Object.entries(clientReviewStats).filter(([, item]) => typeof item === 'number' || typeof item === 'boolean')) : null,
+                    matches: matches.slice(0, 80) });
+            } catch (error) {
+                profileSchemas.push({ ...responses.get(request.requestId), bodyInspection: 'UNAVAILABLE', error: String(error?.message || error) });
+            }
+        }
+        delete details.expectedProfilePath;
+        process.stdout.write(`${JSON.stringify({
+            targetId: page.id,
+            candidate: { newHeadingFound: candidate.newHeadingFound, candidateCount: candidate.candidateCount },
+            details,
+            network: {
+                profileRequests: profileRequests.map((request) => ({ method: request.method, endpoint: '/SAFE_ORDER_CLIENT-01', initiator: request.initiator })),
+                profileSchemas,
+                toolInitiatedWrites: profileRequests.filter((request) => !['GET', 'HEAD'].includes(request.method)).length,
+            },
+        }, null, 2)}\n`);
+    } finally {
+        client.close();
+    }
+}
+
+async function inspectOrderLiveDom() {
+    const page = await orderLivePage();
+    const result = await evaluate(page, `(() => {
+        const describe = (node) => node ? { tag: node.tagName, className: String(node.className || '').slice(0, 260),
+            id: node.id || '', role: node.getAttribute?.('role') || '', ariaModal: node.getAttribute?.('aria-modal') || '',
+            bodyChild: node.parentElement === document.body } : null;
+        const chain = (node) => { const values = []; for (let depth = 0; node && depth < 12; depth += 1, node = node.parentElement) values.push(describe(node)); return values; };
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let commissionNode = null;
+        while (walker.nextNode()) { if (/COMM#\s*[A-Z0-9]{8,16}/i.test(walker.currentNode.nodeValue || '')) { commissionNode = walker.currentNode.parentElement; break; } }
+        const profileLinks = [...document.querySelectorAll('a[href]')].filter((node) => {
+            try { const url = new URL(node.href); return url.origin === 'https://vgen.co' && url.pathname.split('/').filter(Boolean).length === 1
+                && /^@[A-Za-z0-9_-]+$/.test((node.textContent || '').trim()); } catch { return false; }
+        });
+        const handleNode = [...document.querySelectorAll('a,button,div,span,p')]
+            .find((node) => /^@[A-Za-z0-9_-]+$/.test((node.textContent || '').trim()) && node.children.length === 0);
+        const populatedPortals = [...document.body.children].filter((node) => node.matches?.('.ReactModalPortal') && node.childElementCount > 0);
+        return {
+            commissionMarkerFound: Boolean(commissionNode), commissionChain: chain(commissionNode),
+            publicProfileLinkCount: profileLinks.length, profileChain: chain(profileLinks.at(-1)),
+            handleNodeFound: Boolean(handleNode), handleNodeChain: chain(handleNode),
+            populatedPortalCount: populatedPortals.length, populatedPortalChains: populatedPortals.map((node) => chain(node.firstElementChild)).slice(0, 8),
+            bodyChildren: [...document.body.children].map(describe),
+            dialogs: [...document.querySelectorAll('[role="dialog"], [aria-modal="true"], aside')].map(describe).slice(0, 20),
+            orderRoots: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length,
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function inspectOrderPublicReviewsSafe() {
+    const orderPage = await orderLivePage();
+    const profileUrl = await evaluate(orderPage, `(() => {
+        const modal = document.querySelector('[class*="CommissionModal__Container"]');
+        const link = [...(modal?.querySelectorAll('a[href]') || [])].find((node) => {
+            try { const url = new URL(node.href); return url.origin === 'https://vgen.co' && url.pathname.split('/').filter(Boolean).length === 1
+                && /^@[A-Za-z0-9_-]+$/.test((node.textContent || '').trim()); } catch { return false; }
+        });
+        return link?.href || '';
+    })()`);
+    if (!profileUrl) throw new Error('The authorized order public profile URL is unavailable');
+    const page = await newPage('about:blank');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    const requests = [];
+    try {
+        client.on('Network.requestWillBeSent', ({ request, initiator }) => {
+            try {
+                const url = new URL(request.url);
+                if (url.hostname === 'vgen.co' || url.hostname === 'api.vgen.co') requests.push({ method: request.method, url, initiator: initiator?.type || '' });
+            } catch { /* Ignore non-URL requests. */ }
+        });
+        await client.send('Network.enable');
+        await client.send('Page.enable');
+        await client.send('Runtime.enable');
+        await client.send('Page.navigate', { url: profileUrl });
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        let chip = null;
+        for (let step = 0; step < 8 && !chip; step += 1) {
+            chip = await evaluate(page, `(() => {
+                const nodes = [...document.querySelectorAll('button, [role="button"], [class*="chipButton"]')];
+                const node = nodes.find((value) => /\breviews?\b/i.test(value.textContent || ''));
+                if (node) node.scrollIntoView({ block: 'center' }); else window.scrollBy(0, Math.max(480, innerHeight * .8));
+                const rect = node?.getBoundingClientRect();
+                return rect && rect.width > 0 && rect.height > 0 ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+            })()`);
+            if (!chip) await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        const requestBoundary = requests.length;
+        if (chip) {
+            await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: chip.x, y: chip.y, button: 'left', clickCount: 1 });
+            await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: chip.x, y: chip.y, button: 'left', clickCount: 1 });
+            await new Promise((resolve) => setTimeout(resolve, 2_500));
+        }
+        const dom = await evaluate(page, `(() => {
+            const nodes = [...document.querySelectorAll('[class*="review" i], [data-testid*="review" i]')];
+            const ratings = [...document.querySelectorAll('[aria-label*="star" i], [class*="rating" i]')];
+            return { reviewChipFound: ${Boolean(chip)}, reviewLikeNodes: nodes.length, ratingLikeNodes: ratings.length,
+                selectableTextNodes: nodes.filter((node) => getComputedStyle(node).userSelect !== 'none' && (node.textContent || '').trim()).length };
+        })()`);
+        const sanitize = (url) => ({ host: url.host, endpoint: url.pathname.replace(new URL(profileUrl).pathname, '/SAFE_ORDER_CLIENT-01'), queryKeys: [...url.searchParams.keys()].sort() });
+        process.stdout.write(`${JSON.stringify({ targetId: page.id, dom,
+            requestsAfterChip: requests.slice(requestBoundary).map((request) => ({ method: request.method, ...sanitize(request.url), initiator: request.initiator })),
+        }, null, 2)}\n`);
+    } finally { client.close(); }
+}
+
+async function inspectOrderNativeClientReviewsSafe() {
+    const page = await orderLivePage();
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    const requests = [];
+    const responses = new Map();
+    try {
+        client.on('Network.requestWillBeSent', ({ requestId, request, initiator }) => {
+            try {
+                const url = new URL(request.url);
+                if (url.hostname === 'vgen.co' || url.hostname === 'api.vgen.co') requests.push({ requestId, method: request.method, url, initiator: initiator?.type || '' });
+            } catch { /* Ignore non-URL requests. */ }
+        });
+        client.on('Network.responseReceived', ({ requestId, response }) => responses.set(requestId, { status: response.status, mimeType: response.mimeType }));
+        await client.send('Network.enable');
+        await client.send('Runtime.enable');
+        const trigger = await evaluate(page, `(() => {
+            const modal = document.querySelector('[class*="CommissionModal__Container"]');
+            const profile = [...(modal?.querySelectorAll('a[href]') || [])].find((node) => /^@[A-Za-z0-9_-]+$/.test((node.textContent || '').trim()));
+            let scope = profile;
+            let trigger = modal?.querySelector('[class*="ClientReviewsPreview__ArrowButton"]') || null;
+            for (let depth = 0; scope && depth < 9; depth += 1, scope = scope.parentElement) {
+                if (trigger) break;
+                trigger = [...scope.querySelectorAll('button, a, [role="button"]')].find((node) => /^see all$/i.test((node.textContent || '').trim()));
+                if (trigger) break;
+            }
+            if (!trigger) trigger = modal?.querySelector('[class*="ClientReviewsPreview__Container"]') || null;
+            trigger?.scrollIntoView({ block: 'center' });
+            const rect = trigger?.getBoundingClientRect();
+            return rect && rect.width > 0 && rect.height > 0 ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+        })()`);
+        if (trigger) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: trigger.x, y: trigger.y, button: 'left', clickCount: 1 });
+            await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: trigger.x, y: trigger.y, button: 'left', clickCount: 1 });
+            await new Promise((resolve) => setTimeout(resolve, 2_500));
+        }
+        const dom = await evaluate(page, `(() => { const reviewNodes = [...document.querySelectorAll('[class*="review" i], [data-testid*="review" i]')]; return {
+            reviewLikeNodes: reviewNodes.length,
+            reviewNodeShapes: reviewNodes.map((node) => ({ tag: node.tagName, className: String(node.className || '').slice(0, 180),
+                textLength: (node.textContent || '').trim().length, hasReviewWord: /reviews?/i.test(node.textContent || ''),
+                numericTokens: ((node.textContent || '').match(/[0-9]+(?:\.[0-9]+)?%?/g) || []).slice(0, 8),
+                clickableAncestor: node.closest('button, a, [role="button"]')?.tagName || '' })).slice(0, 30),
+            dialogs: document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length,
+            orderRoots: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length,
+        }; })()`);
+        const responseSchemas = [];
+        for (const request of requests.filter((value) => value.method === 'GET')) {
+            try {
+                const result = await client.send('Network.getResponseBody', { requestId: request.requestId });
+                const contentType = responses.get(request.requestId)?.mimeType || '';
+                if (!/json/i.test(contentType) && !/^\s*[\[{]/.test(result.body || '')) continue;
+                const value = JSON.parse(result.body);
+                const items = Array.isArray(value) ? value : [];
+                const itemKeys = [...new Set(items.flatMap((item) => item && typeof item === 'object' ? Object.keys(item) : []))].sort();
+                const booleanFields = Object.fromEntries(itemKeys.map((key) => [key, items.map((item) => item?.[key]).filter((item) => typeof item === 'boolean')])
+                    .filter(([, values]) => values.length).map(([key, values]) => [key, { true: values.filter(Boolean).length, false: values.filter((item) => !item).length }]));
+                const pathParts = request.url.pathname.split('/').filter(Boolean);
+                const endpointIds = { first: pathParts[0], last: pathParts.at(-1) };
+                const idRelations = Object.fromEntries(Object.entries(endpointIds).map(([label, id]) => [label,
+                    itemKeys.filter((key) => items.some((item) => item?.[key] === id))]));
+                const matches = [];
+                const seen = new Set();
+                const walk = (node, path = '$', depth = 0) => {
+                    if (!node || typeof node !== 'object' || depth > 15 || seen.has(node)) return;
+                    seen.add(node);
+                    for (const [key, child] of Object.entries(node)) {
+                        const nextPath = `${path}.${key}`;
+                        if (/review|rating|feedback|comment|content/i.test(key)) matches.push({ path: nextPath,
+                            type: Array.isArray(child) ? 'array' : typeof child, length: Array.isArray(child) ? child.length : undefined });
+                        walk(child, nextPath, depth + 1);
+                    }
+                };
+                walk(value);
+                if (matches.length) responseSchemas.push({ requestId: request.requestId, ...responses.get(request.requestId),
+                    rootType: Array.isArray(value) ? 'array' : typeof value, itemCount: items.length, itemKeys, booleanFields,
+                    idRelations,
+                    matches: matches.slice(0, 100) });
+            } catch { /* Ignore unrelated or expired response bodies. */ }
+        }
+        const reviewRequest = requests.find((request) => request.method === 'GET' && /\/reviews\/client\//.test(request.url.pathname));
+        let idPathMatches = null;
+        if (reviewRequest) {
+            const parts = reviewRequest.url.pathname.split('/').filter(Boolean);
+            const firstId = parts[0];
+            const lastId = parts.at(-1);
+            idPathMatches = await evaluate(page, `(() => {
+                let value = null; try { value = JSON.parse(document.querySelector('#__NEXT_DATA__')?.textContent || 'null'); } catch {}
+                const found = { first: [], last: [] }; const seen = new Set();
+                const walk = (node, path = '$', depth = 0) => { if (!node || typeof node !== 'object' || depth > 18 || seen.has(node)) return; seen.add(node);
+                    for (const [key, child] of Object.entries(node)) { const nextPath = path + '.' + key;
+                        if (child === ${JSON.stringify(firstId)}) found.first.push(nextPath);
+                        if (child === ${JSON.stringify(lastId)}) found.last.push(nextPath);
+                        walk(child, nextPath, depth + 1); } };
+                walk(value); return found;
+            })()`);
+        }
+        const sanitize = (url) => { const parts = url.pathname.split('/').filter(Boolean); const opaque = parts.filter((part) => /^[A-Za-z0-9_-]{12,}$/.test(part)); return {
+            host: url.host, endpoint: url.pathname.replace(/\/[A-Za-z0-9_-]{12,}(?=\/|$)/g, '/SAFE_ID'), idsEqual: opaque.length > 1 ? opaque[0] === opaque.at(-1) : null,
+            queryKeys: [...url.searchParams.keys()].sort(),
+        }; };
+        process.stdout.write(`${JSON.stringify({ triggerFound: Boolean(trigger), dom, idPathMatches,
+            requests: requests.map((request) => ({ method: request.method, ...sanitize(request.url), initiator: request.initiator })), responseSchemas,
+        }, null, 2)}\n`);
+    } finally { client.close(); }
+}
+
+async function inspectOrderReviewIdSourcesSafe() {
+    const page = await orderLivePage();
+    const result = await evaluate(page, `(() => {
+        const entries = performance.getEntriesByType('resource').map((entry) => entry.name);
+        const reviewUrl = entries.find((value) => { try { return new URL(value).pathname.includes('/reviews/client/'); } catch { return false; } });
+        if (!reviewUrl) return { reviewRequestFound: false, matches: {} };
+        const ids = new URL(reviewUrl).pathname.split('/').filter(Boolean).filter((part) => /^[A-Za-z0-9_-]{12,}$/.test(part));
+        const sanitize = (value) => { const url = new URL(value); return url.host + url.pathname.split('/').map((part) => /^[A-Za-z0-9_-]{12,}$/.test(part) ? 'SAFE_ID' : part).join('/'); };
+        return { reviewRequestFound: true, matches: Object.fromEntries(ids.map((id, index) => [index === 0 ? 'first' : 'last',
+            [...new Set(entries.filter((value) => value !== reviewUrl && value.includes(id)).map(sanitize))].slice(0, 30)])), endpointIds: ids };
+    })()`);
+    if (result.endpointIds?.length > 1) {
+        const relationship = await evaluate(page, `(async () => {
+            const links = [...document.querySelectorAll('a[href]')];
+            const ownerLink = links.find((node) => /go to my profile/i.test((node.textContent || '').trim()));
+            const modal = document.querySelector('[class*="CommissionModal__Container"]');
+            const clientLink = [...(modal?.querySelectorAll('a[href]') || [])].find((node) => /^@[A-Za-z0-9_-]+$/.test((node.textContent || '').trim()));
+            const findPaths = async (link, expected) => {
+                if (!link) return [];
+                const response = await fetch(link.href, { method: 'GET', credentials: 'same-origin', headers: { Accept: 'text/html' } });
+                const html = await response.text(); const match = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\\s\\S]*?)<\\/script>/i);
+                const value = match ? JSON.parse(match[1]) : null; const paths = []; const seen = new Set();
+                const walk = (node, path = '$', depth = 0) => { if (!node || typeof node !== 'object' || depth > 18 || seen.has(node)) return; seen.add(node);
+                    for (const [key, child] of Object.entries(node)) { const nextPath = path + '.' + key; if (child === expected) paths.push(nextPath); walk(child, nextPath, depth + 1); } };
+                walk(value); return paths;
+            };
+            try {
+                return { ownerProfileLinkFound: Boolean(ownerLink), clientProfileLinkFound: Boolean(clientLink),
+                    firstPathsInOwnerProfile: await findPaths(ownerLink, ${JSON.stringify(result.endpointIds[0])}),
+                    lastPathsInClientProfile: await findPaths(clientLink, ${JSON.stringify(result.endpointIds.at(-1))}) };
+            } catch { return { ownerProfileLinkFound: Boolean(ownerLink), clientProfileLinkFound: Boolean(clientLink), inspectionFailed: true }; }
+        })()`);
+        result.relationship = relationship;
+    }
+    delete result.endpointIds;
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function inspectOrderReviewBundleSafe() {
+    const page = await orderLivePage();
+    const result = await evaluate(page, `(async () => {
+        const urls = [...new Set([...document.scripts].map((node) => node.src).concat(performance.getEntriesByType('resource').map((entry) => entry.name))
+            .filter((value) => { try { const url = new URL(value); return url.origin === location.origin && url.pathname.endsWith('.js'); } catch { return false; } }))];
+        const matches = [];
+        for (const url of urls.slice(0, 80)) {
+            try {
+                const text = await (await fetch(url, { method: 'GET', credentials: 'same-origin' })).text();
+                let index = text.indexOf('/reviews/client/');
+                if (index < 0) index = text.indexOf('reviews/client');
+                if (index < 0) continue;
+                matches.push({ asset: new URL(url).pathname.split('/').at(-1), snippet: text.slice(Math.max(0, index - 500), index + 700)
+                    .replace(/[A-Fa-f0-9]{8}-[A-Fa-f0-9-]{27,}/g, 'SAFE_UUID') });
+                if (matches.length >= 4) break;
+            } catch { /* Ignore unrelated chunk failures. */ }
+        }
+        return { scanned: Math.min(urls.length, 80), matches };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function exerciseOrderLiveCyclesSafe() {
+    const page = await orderLivePage();
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    const requests = [];
+    const waitUntil = async (expression, timeout = 5_000) => {
+        const started = Date.now();
+        while (Date.now() - started < timeout) {
+            if (await evaluate(page, expression)) return true;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return false;
+    };
+    try {
+        client.on('Network.requestWillBeSent', ({ request, initiator }) => {
+            try { const url = new URL(request.url); if (url.hostname === 'vgen.co' || url.hostname === 'api.vgen.co') requests.push({ method: request.method, url, initiator: initiator?.type || '' }); } catch {}
+        });
+        await client.send('Network.enable');
+        const cycles = [];
+        for (let index = 0; index < 3; index += 1) {
+            const beforeClose = await evaluate(page, `({ roots: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length,
+                dialogs: document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length })`);
+            const closePoint = await evaluate(page, `(() => { const modal = document.querySelector('[class*="CommissionModal__Container"]'); const value = modal?.getBoundingClientRect();
+                return value ? { x: value.left + 34, y: value.top + 32 } : null; })()`);
+            if (!closePoint) throw new Error('Authorized order detail close control is unavailable');
+            await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: closePoint.x, y: closePoint.y, button: 'left', clickCount: 1 });
+            await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: closePoint.x, y: closePoint.y, button: 'left', clickCount: 1 });
+            const closed = await waitUntil(`!document.querySelector('[class*="CommissionModal__Container"]') && !document.querySelector('[data-vgen-nya-ui="order-assistant"]')`);
+            const profileBeforeIdle = requests.filter((request) => { try { return request.method === 'GET' && new URL(request.url).origin === 'https://vgen.co' && new URL(request.url).pathname.split('/').filter(Boolean).length === 1; } catch { return false; } }).length;
+            const idle = await evaluate(page, `(async () => { let changes = 0; const observer = new MutationObserver((records) => { for (const record of records) for (const node of [...record.addedNodes, ...record.removedNodes])
+                    if (node.nodeType === 1 && (node.matches?.('[data-vgen-nya-ui="order-assistant"]') || node.querySelector?.('[data-vgen-nya-ui="order-assistant"]'))) changes += 1; });
+                observer.observe(document.body, { childList: true, subtree: true }); await new Promise((resolve) => setTimeout(resolve, 4_000)); observer.disconnect();
+                return { changes, roots: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length }; })()`);
+            const profileAfterIdle = requests.filter((request) => { try { return request.method === 'GET' && new URL(request.url).origin === 'https://vgen.co' && new URL(request.url).pathname.split('/').filter(Boolean).length === 1; } catch { return false; } }).length;
+            let reopened = null;
+            if (index < 2) {
+                const candidate = await evaluate(page, orderCardProbeExpression);
+                if (!candidate.candidate) throw new Error('Authorized NEW commission card disappeared during cycle test');
+                await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: candidate.candidate.x, y: candidate.candidate.y, button: 'left', clickCount: 1 });
+                await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: candidate.candidate.x, y: candidate.candidate.y, button: 'left', clickCount: 1 });
+                const mounted = await waitUntil(`document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length === 1`);
+                await new Promise((resolve) => setTimeout(resolve, 700));
+                reopened = await evaluate(page, `({ mounted: false, roots: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length,
+                    dialogs: document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length })`);
+                reopened.mounted = mounted;
+            }
+            cycles.push({ index: index + 1, beforeClose, closed, idle: { ...idle, profileFetches: profileAfterIdle - profileBeforeIdle }, reopened });
+        }
+        const profileRequests = requests.filter((request) => { try { return request.method === 'GET' && new URL(request.url).origin === 'https://vgen.co' && new URL(request.url).pathname.split('/').filter(Boolean).length === 1; } catch { return false; } });
+        const writes = requests.filter((request) => !['GET', 'HEAD', 'OPTIONS'].includes(request.method));
+        const finalState = await evaluate(page, `({ roots: document.querySelectorAll('[data-vgen-nya-ui="order-assistant"]').length,
+            styles: document.querySelectorAll('[data-vgen-nya-ui="order-assistant-style"]').length,
+            dialogs: document.querySelectorAll('[role="dialog"], [aria-modal="true"]').length })`);
+        process.stdout.write(`${JSON.stringify({ cycles, profileFetchesDuringCycles: profileRequests.length, toolInteractionWrites: writes.length, finalState }, null, 2)}\n`);
+    } finally { client.close(); }
+}
+
 async function inspectPrivateNoteAutosaveSafety() {
     const page = await chatLivePage();
     const result = await evaluate(page, `(() => {
@@ -2037,6 +2525,15 @@ if (process.argv.includes('--exercise-text-preset-chat-lifecycle')) await exerci
 if (process.argv.includes('--inspect-text-preset-ui-live')) await inspectTextPresetUiLive();
 if (process.argv.includes('--inspect-text-preset-settings-ui-live')) await inspectTextPresetSettingsUiLive();
 if (process.argv.includes('--probe-vgen-targets-safe')) await probeVGenTargetsSafe();
+if (process.argv.includes('--probe-order-live-neutral')) await probeOrderLiveNeutral();
+if (process.argv.includes('--create-order-live-page')) await createOrderLivePage();
+if (process.argv.includes('--open-order-live-safe')) await openOrderLiveSafeDetail();
+if (process.argv.includes('--inspect-order-live-dom')) await inspectOrderLiveDom();
+if (process.argv.includes('--inspect-order-public-reviews-safe')) await inspectOrderPublicReviewsSafe();
+if (process.argv.includes('--inspect-order-native-client-reviews-safe')) await inspectOrderNativeClientReviewsSafe();
+if (process.argv.includes('--inspect-order-review-id-sources-safe')) await inspectOrderReviewIdSourcesSafe();
+if (process.argv.includes('--inspect-order-review-bundle-safe')) await inspectOrderReviewBundleSafe();
+if (process.argv.includes('--exercise-order-live-cycles-safe')) await exerciseOrderLiveCyclesSafe();
 if (process.argv.includes('--inspect-private-note-autosave-safety')) await inspectPrivateNoteAutosaveSafety();
 if (process.argv.includes('--open-private-note-inspection')) await openPrivateNoteInspectionSurface();
 if (process.argv.includes('--measure-text-preset-idle-cleanup')) await measureTextPresetIdleCleanup();

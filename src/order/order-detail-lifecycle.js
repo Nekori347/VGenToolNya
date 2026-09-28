@@ -1,25 +1,36 @@
 import { resolvePublicClientIdentity } from './client-review-adapter.js';
 
 const COMMISSION_ID = /\bCOMM#\s*[A-Z0-9]{8,16}\b/i;
+const COMMISSION_MODAL_SELECTOR = '[class*="CommissionModal__Container"]';
+const COMMISSION_CARD_SELECTOR = '[class*="commissionCardContainer"], [class*="CommissionCard"], a[href*="commission"]';
 
 export function defaultOrderPanelResolver(root) {
     if (!root?.querySelectorAll) return null;
-    if (!COMMISSION_ID.test(String(root.textContent || ''))) return null;
-    return resolvePublicClientIdentity(root) ? root : null;
+    const modal = root.matches?.(COMMISSION_MODAL_SELECTOR)
+        ? root
+        : root.querySelector?.(COMMISSION_MODAL_SELECTOR)
+            || root.querySelector?.('#commissionSideColumn')?.closest?.(COMMISSION_MODAL_SELECTOR);
+    const candidate = modal || (COMMISSION_ID.test(String(root.textContent || '')) ? root : null);
+    return candidate && resolvePublicClientIdentity(candidate) ? candidate : null;
 }
 
 export class OrderDetailLifecycle {
-    constructor({ documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, panelResolver = defaultOrderPanelResolver, identityResolver = resolvePublicClientIdentity } = {}) {
+    constructor({ documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, panelResolver = defaultOrderPanelResolver, identityResolver = resolvePublicClientIdentity, clock = globalThis } = {}) {
         this.documentObject = documentObject;
         this.MutationObserverClass = MutationObserverClass;
         this.panelResolver = panelResolver;
         this.identityResolver = identityResolver;
+        this.clock = clock;
         this.listeners = new Set();
         this.observer = null;
         this.panelObserver = null;
         this.panel = null;
         this.identity = null;
         this.probes = new Map();
+        this.scanTimers = new Set();
+        this.onDocumentClick = (event) => {
+            if (event.target?.closest?.(COMMISSION_CARD_SELECTOR)) this.#schedulePortalScan();
+        };
         this.mounted = false;
     }
 
@@ -45,7 +56,32 @@ export class OrderDetailLifecycle {
             });
             this.observer.observe(this.documentObject.body, { childList: true });
         }
+        this.documentObject.addEventListener?.('click', this.onDocumentClick, true);
         return true;
+    }
+
+    #schedulePortalScan() {
+        this.#releaseScanTimers();
+        for (const delay of [0, 80, 250, 700, 1500]) {
+            const timer = this.clock.setTimeout(() => {
+                this.scanTimers.delete(timer);
+                if (this.panel || this.#scanPortals()) this.#releaseScanTimers();
+            }, delay);
+            this.scanTimers.add(timer);
+        }
+    }
+
+    #scanPortals() {
+        for (const child of this.documentObject.body.children || []) {
+            if (!child.matches?.('.ReactModalPortal') && !child.matches?.(COMMISSION_MODAL_SELECTOR)) continue;
+            if (this.#consider(child)) return true;
+        }
+        return false;
+    }
+
+    #releaseScanTimers() {
+        for (const timer of this.scanTimers) this.clock.clearTimeout(timer);
+        this.scanTimers.clear();
     }
 
     #consider(root) {
@@ -59,6 +95,7 @@ export class OrderDetailLifecycle {
             this.identity = identity;
             this.#observePanel();
             this.#releaseProbes();
+            this.#releaseScanTimers();
             this.#emit('open');
         } else if (identity.clientId !== this.identity?.clientId || identity.mountTarget !== this.identity?.mountTarget) {
             this.identity = identity;
@@ -70,7 +107,11 @@ export class OrderDetailLifecycle {
     #observePanel() {
         if (!this.MutationObserverClass || !this.panel) return;
         this.panelObserver = new this.MutationObserverClass(() => {
-            if (!this.panel || this.panel.isConnected === false) return this.#close();
+            if (!this.panel || this.panel.isConnected === false) {
+                this.#close();
+                if (this.mounted) this.#schedulePortalScan();
+                return;
+            }
             const identity = this.identityResolver(this.panel);
             if (identity && (identity.clientId !== this.identity?.clientId || identity.mountTarget !== this.identity?.mountTarget)) {
                 this.identity = identity;
@@ -130,7 +171,9 @@ export class OrderDetailLifecycle {
         if (!this.mounted) return false;
         this.observer?.disconnect();
         this.observer = null;
+        this.documentObject.removeEventListener?.('click', this.onDocumentClick, true);
         this.#releaseProbes();
+        this.#releaseScanTimers();
         this.#close();
         this.mounted = false;
         return true;

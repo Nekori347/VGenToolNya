@@ -20,7 +20,7 @@ import {
     CLIENT_BACKGROUND_TTL_MS,
 } from '../src/order/client-background-cache.js';
 import { OrderAssistantRuntime, OrderAssistantSession } from '../src/order/order-assistant.js';
-import { OrderDetailLifecycle } from '../src/order/order-detail-lifecycle.js';
+import { defaultOrderPanelResolver, OrderDetailLifecycle } from '../src/order/order-detail-lifecycle.js';
 
 class Observer {
     static instances = [];
@@ -76,6 +76,17 @@ test('Iteration 5 L1: public review normalization distinguishes five-star, low, 
     assert.equal(normalizeReviewContext({ reviews: [{ rating: 'bad', body: '' }] }, client).state, REVIEW_SOURCE_STATES.unavailable);
     assert.equal(normalizeReviewContext({ reviews: [{ rating: 5, body: 'Valid' }, { rating: 'bad', body: '' }] }, client).state, REVIEW_SOURCE_STATES.unavailable);
     assert.equal(normalizePublicReview({ rating: 4, body: 'Keep exact body', reviewer: 'Anonymous' }).body, 'Keep exact body');
+});
+
+test('Iteration 5 L1: current binary client-review payload is not mislabeled as star-rating success', () => {
+    const client = identity('binary-client');
+    const result = normalizeReviewContext([
+        { wouldRecommend: true, reviewText: 'Public recommendation text' },
+        { wouldRecommend: false, reviewText: 'Public non-recommendation text' },
+    ], client, 20);
+    assert.equal(result.state, REVIEW_SOURCE_STATES.unavailable);
+    assert.deepEqual(result.reviews, []);
+    assert.deepEqual(result.lowRatingReviews, []);
 });
 
 test('Iteration 5 L1: public review adapter only performs GET and request errors remain errors', async () => {
@@ -206,6 +217,65 @@ test('Iteration 5 L2: replacing the current client mount target refreshes one se
     const secondTarget = documentObject.createElement('div'); panel.append(secondTarget); currentTarget = secondTarget;
     Observer.instances.find((item) => item.target === panel).emit([{ addedNodes: [secondTarget], removedNodes: [firstTarget] }]);
     assert.deepEqual(events, ['open', 'change']);
+    lifecycle.unmount();
+});
+
+test('Iteration 5 L2: commission-card click performs only bounded portal scans for pre-created React portals', () => {
+    Observer.instances = [];
+    const documentObject = new MiniDocument();
+    const portal = documentObject.createElement('div'); portal.className = 'ReactModalPortal'; documentObject.body.append(portal);
+    const scheduled = [];
+    const clock = {
+        setTimeout(callback, delay) { const entry = { callback, delay, cleared: false }; scheduled.push(entry); return entry; },
+        clearTimeout(entry) { entry.cleared = true; },
+    };
+    const lifecycle = new OrderDetailLifecycle({
+        documentObject, MutationObserverClass: Observer, clock,
+        panelResolver: (root) => root.dataset?.ready ? root : null,
+        identityResolver: (root) => identity('click-client', root),
+    });
+    lifecycle.mount();
+    const card = documentObject.createElement('div'); card.className = 'commissionCardContainer';
+    lifecycle.onDocumentClick({ target: card });
+    assert.deepEqual(scheduled.map((entry) => entry.delay), [0, 80, 250, 700, 1500]);
+    portal.dataset.ready = 'true';
+    scheduled[1].callback();
+    assert.equal(lifecycle.identity.clientId, '@click-client');
+    assert.equal(scheduled.every((entry) => entry.cleared || entry === scheduled[1]), true);
+    lifecycle.unmount();
+});
+
+test('Iteration 5 L2: current VGen CommissionModal selector resolves without relying on a route or status', () => {
+    const anchor = { href: 'https://vgen.co/safe-client', textContent: '@safe-client', parentElement: {}, closest: () => null };
+    const modal = { matches: (selector) => selector.includes('CommissionModal__Container'), querySelectorAll: () => [anchor] };
+    const portal = { querySelectorAll() {}, matches: () => false, querySelector: (selector) => selector.includes('CommissionModal__Container') ? modal : null };
+    assert.equal(defaultOrderPanelResolver(portal), modal);
+});
+
+test('Iteration 5 L2: detached VGen modal starts one bounded recovery scan for its pre-created portal', () => {
+    Observer.instances = [];
+    const documentObject = new MiniDocument();
+    const portal = documentObject.createElement('div'); portal.className = 'ReactModalPortal'; documentObject.body.append(portal);
+    const panel = documentObject.createElement('section'); portal.append(panel);
+    const scheduled = [];
+    const clock = {
+        setTimeout(callback, delay) { const entry = { callback, delay, cleared: false }; scheduled.push(entry); return entry; },
+        clearTimeout(entry) { entry.cleared = true; },
+    };
+    const lifecycle = new OrderDetailLifecycle({
+        documentObject, MutationObserverClass: Observer, clock,
+        panelResolver: (root) => root === portal ? root.querySelector('section') : root.matches?.('section') ? root : null,
+        identityResolver: (root) => identity('replacement-client', root),
+    });
+    lifecycle.mount();
+    assert.equal(lifecycle.identity.clientId, '@replacement-client');
+    panel.remove();
+    Observer.instances.find((observer) => observer.target === panel).callback([]);
+    assert.equal(lifecycle.identity, null);
+    assert.deepEqual(scheduled.map((entry) => entry.delay), [0, 80, 250, 700, 1500]);
+    const replacement = documentObject.createElement('section'); portal.append(replacement);
+    scheduled[1].callback();
+    assert.equal(lifecycle.identity.clientId, '@replacement-client');
     lifecycle.unmount();
 });
 
