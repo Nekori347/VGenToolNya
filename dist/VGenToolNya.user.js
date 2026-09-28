@@ -3894,7 +3894,7 @@ ${summary}
       const key = TEXT_PRESET_KEYS[context];
       if (!key) throw new TypeError(`Unknown text preset context: ${context}`);
       const value = this.store.read(key, []);
-      return Array.isArray(value) ? cloneStorageValue(value) : [];
+      return cloneStorageValue(value);
     }
     write(context, value) {
       if (!Array.isArray(value)) throw new TypeError("Text preset collection must be an array");
@@ -3944,6 +3944,7 @@ ${summary}
     #inspect(context) {
       const adapter = this.registry.get(context);
       const raw = this.store.read(context);
+      if (!Array.isArray(raw)) return { raw, valid: [], hasInvalid: true };
       const result = [];
       const ids = /* @__PURE__ */ new Set();
       for (const item of raw) {
@@ -4061,6 +4062,7 @@ ${summary}
       if (!confirmed) throw new Error("Text preset import requires explicit confirmation");
       if (plan?.kind !== "vgen-nya.text-preset-import-plan") throw new TypeError("Invalid text preset import plan");
       this.registry.get(plan.context);
+      this.#writableList(plan.context);
       const previous = this.store.read(plan.context);
       try {
         this.store.write(plan.context, plan.presets);
@@ -4514,7 +4516,6 @@ ${summary}
     core.mountUploadAssistant();
     core.mountChatAssistant();
     core.mountFrequentClients();
-    core.mountOrderTextPresets();
   }
   start();
 })();

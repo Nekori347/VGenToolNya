@@ -22,7 +22,7 @@ export class TextPresetStore {
         const key = TEXT_PRESET_KEYS[context];
         if (!key) throw new TypeError(`Unknown text preset context: ${context}`);
         const value = this.store.read(key, []);
-        return Array.isArray(value) ? cloneStorageValue(value) : [];
+        return cloneStorageValue(value);
     }
 
     write(context, value) {

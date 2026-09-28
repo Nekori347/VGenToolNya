@@ -22,6 +22,7 @@ export class TextPresetEngine {
     #inspect(context) {
         const adapter = this.registry.get(context);
         const raw = this.store.read(context);
+        if (!Array.isArray(raw)) return { raw, valid: [], hasInvalid: true };
         const result = [];
         const ids = new Set();
         for (const item of raw) {
@@ -137,6 +138,7 @@ export class TextPresetEngine {
         if (!confirmed) throw new Error('Text preset import requires explicit confirmation');
         if (plan?.kind !== 'vgen-nya.text-preset-import-plan') throw new TypeError('Invalid text preset import plan');
         this.registry.get(plan.context);
+        this.#writableList(plan.context);
         const previous = this.store.read(plan.context);
         try {
             this.store.write(plan.context, plan.presets);

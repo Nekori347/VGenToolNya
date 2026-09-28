@@ -65,6 +65,21 @@ test('Iteration 4 L1: invalid stored items recover read-only without rewriting s
     assert.deepEqual(driver.getValue(CONFIG_KEYS.chatQuickReplyPresets), raw);
 });
 
+test('Iteration 4 L1: a non-array corrupt collection remains untouched and blocks create/import', () => {
+    const key = CONFIG_KEYS.privateNotePresets;
+    const corrupt = { unexpected: 'keep-original' };
+    const { engine, driver } = setup({ [key]: corrupt });
+    const beforeWrites = driver.writes.length;
+    assert.deepEqual(engine.list(TEXT_PRESET_CONTEXTS.privateNote), []);
+    assert.throws(() => engine.create(TEXT_PRESET_CONTEXTS.privateNote, { name: 'Unsafe overwrite', payload: 'x' }), /left unchanged/);
+    const document = { schema: 'vgen-nya.text-presets', version: 1, context: TEXT_PRESET_CONTEXTS.privateNote,
+        exportedAt: '2026-09-28T00:00:00.000Z', presets: [{ id: 'new', name: 'New', value: 'new' }] };
+    const plan = engine.prepareImport(document);
+    assert.throws(() => engine.commitImport(plan, { confirmed: true }), /left unchanged/);
+    assert.equal(driver.writes.length, beforeWrites);
+    assert.deepEqual(driver.getValue(key), corrupt);
+});
+
 test('Iteration 4 L1: context export/import validates schema, requires confirmation and preserves fields', () => {
     const context = TEXT_PRESET_CONTEXTS.chatQuickReply;
     const source = setup({ [CONFIG_KEYS.chatQuickReplyPresets]: [{ id: 'x', name: 'X', value: 'text', custom: { keep: true } }] });

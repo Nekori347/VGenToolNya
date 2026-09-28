@@ -99,4 +99,6 @@ test('Iteration 4 L2: preset integrations add no polling, global subtree observe
     const order = await readFile(path.join(projectRoot, 'src/order/order-text-presets.js'), 'utf8');
     assert.match(order, /observe\(this\.documentObject\.body, \{ childList: true \}\)/);
     assert.doesNotMatch(order, /observe\(this\.documentObject\.body, \{[^}]*subtree:\s*true/);
+    const entry = await readFile(path.join(projectRoot, 'src/userscript-entry.js'), 'utf8');
+    assert.doesNotMatch(entry, /core\.mountOrderTextPresets\(\)/, 'Private Note runtime must remain gated until autosave safety is verified');
 });
