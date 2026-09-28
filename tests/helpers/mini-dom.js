@@ -86,6 +86,11 @@ export class MiniElement extends EventTarget {
             const tagClass = value.match(/^([a-z]+)\.([A-Za-z0-9_-]+)$/i);
             if (tagClass) return this.tagName === tagClass[1].toUpperCase() && this.classList.contains(tagClass[2]);
             if (value.startsWith('.')) return this.classList.contains(value.slice(1).split('[')[0]);
+            const dataAttr = value.match(/^\[data-([a-z-]+)(?:="([^"]+)")?\]$/i);
+            if (dataAttr) {
+                const key = dataAttr[1].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+                return dataAttr[2] === undefined ? key in this.dataset : this.dataset[key] === dataAttr[2];
+            }
             const match = value.match(/^([a-z]+)(?:\[data-([a-z-]+)(?:="([^"]+)")?\])?$/i);
             if (!match || this.tagName !== match[1].toUpperCase()) return false;
             if (!match[2]) return true;

@@ -19,7 +19,11 @@
     "GM_deleteValue",
     "GM_setClipboard",
     "GM_registerMenuCommand",
+    "GM_xmlhttpRequest",
     "unsafeWindow"
+  ],
+  "connect": [
+    "*"
   ],
   "runAt": "document-idle",
   "artifacts": {

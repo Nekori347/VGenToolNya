@@ -82,13 +82,14 @@
 - 模型强度：Medium
 
 ## Iteration 6 — AI Review Assistant
+- Status：**MERGE REVIEW READY**（`feat/ai-review-assistant`；`FUNCTIONAL = PASS`、`UI_INTEGRATION_SAFE = PASS`；`npm test` 134/134、L1 102/102、L2 112/112、`release:check` 28/28）
 - Goal：OpenAI Compatible 评价生成（英文+中文、复制/填入、防重复）
 - Modules：Review Assistant
 - Non-goals：不自动提交
 - Dependencies：I1（Provider 配置区）
 - Acceptance：生成/复制/填入可用；每 session 最多一次；API Key 本地安全
 - L1：生成与防重复；L2：Provider 配置隔离
-- Browser 验证：真实 Review UI（受 REVIEW-LIVE-01 限制）
+- Browser 验证：真实 Review UI（`REVIEW-LIVE-01 = BLOCKED_NEEDS_SAFE_REVIEW_SURFACE`）；Provider Live 为 `PROVIDER-LIVE-01 = BLOCKED_NEEDS_TEST_PROVIDER`
 - STOP：无真实 Review UI 时只做组件，不伪造
 - 模型强度：Medium
 
