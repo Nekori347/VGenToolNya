@@ -82,7 +82,7 @@
 - 模型强度：Medium
 
 ## Iteration 6 — AI Review Assistant
-- Status：**MERGE REVIEW READY**（`feat/ai-review-assistant`；`FUNCTIONAL = PASS`、`UI_INTEGRATION_SAFE = PASS`；`npm test` 134/134、L1 102/102、L2 112/112、`release:check` 28/28）
+- Status：**MERGED / COMPLETE**（PR #5 已以 merge commit `098bb2c` 合并到 `main`；`FUNCTIONAL = PASS`、`UI_INTEGRATION_SAFE = PASS`；`npm test` 134/134、L1 102/102、L2 112/112、`release:check` 28/28）
 - Goal：OpenAI Compatible 评价生成（英文+中文、复制/填入、防重复）
 - Modules：Review Assistant
 - Non-goals：不自动提交
