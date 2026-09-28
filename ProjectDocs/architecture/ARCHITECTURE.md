@@ -66,6 +66,14 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 - Review body 保持普通可选 DOM 文本并允许翻译；工具 controls 单独排除翻译，不在正文根使用全局 `notranslate`。
 - Live 调查仅允许只读打开详情。不得 Accept、Decline、改状态、发消息、保存 Private Note 或执行 Delivery。
 
+## Review Assistant Runtime / UI 边界
+
+- Review Assistant 通过 `ReviewProviderAdapter`（config → request → parse → normalize → ReviewCandidate）生成，UI 不直接 fetch；Provider 请求只发送 keywords / length / star degree / system prompt，默认最小 context，不发送订单 ID、内部 UUID、消息历史或 Private Note。
+- `ReviewSession` 是每次真实 Review UI 打开时的会话状态机（idle / generating / ready / error + generation lock），每 session 最多自动生成一次；关闭 abort 在途请求，dispose 后旧 response 不得回写。
+- `ReviewEditorAdapter` 只负责 detect / read / fill，复用 `NativeTextTarget`；不含 submit。非空输入要求明确替换确认。
+- 在 `REVIEW-LIVE-01` 验证真实 Review Surface 前，Review runtime 不安装 body/全局 observer、不轮询，仅保留 `openSurface` 入口供 synthetic fixture 与未来 live 使用；Review surface 不存在时 runtime 近乎零成本。
+- API Key 仅存于 `vgen-nya.review-provider.v1`，不硬编码、不进日志/诊断/artifact；UI 以 password 字段 + 掩码显示。recent hash 历史为有界内存结构，不持久化。
+
 ## Text Preset Engine
 
 - Engine 统一 collection、CRUD、排序、选择、preview 与带确认/回滚的 context export/import；五个 Context 使用独立 adapter 的 `serialize / deserialize / preview / validate / fill` contract。

@@ -37,3 +37,4 @@
 31. **UI-FINAL-POLISH-01 是首次 Stable Release 的硬 Gate。** 所有功能 Iteration 完成后，必须定向审计两个只读旧附件的成熟 UX，统一 Design Tokens 与最终图标，并由用户人工视觉验收；自动化、无 overflow 或单实例不能替代该验收。
 32. **旧插件 UI 是 UX 参考而非像素模板。** 最终 Upload、Chat、Frequent Clients、Order、Review 与 Settings 必须像同一产品，并尽量延续 VGen 原生视觉；Emoji / Unicode 功能图标只能作为开发占位。
 33. **Client Background 按 Order Detail Panel 生命周期挂载。** 不以 `order.status === pending` 限制；所有能打开详情面板的订单状态共享同一入口。Iteration 5 不因架构命名扩大抓取范围，仍只处理已确认的公开评价、复制与缓存需求。
+34. **Review Assistant 只生成、只填入，绝不提交。** Provider 请求最小 context（keywords / length / star degree / system prompt）；API Key 仅存于 `vgen-nya.review-provider.v1` 并本地保存，UI 掩码显示；recent hash 去重为有界内存历史。真实 Review Surface 未验证前 runtime 不安装 observer/timer，`REVIEW-LIVE-01 = BLOCKED_NEEDS_SAFE_REVIEW_SURFACE`，不伪造 REAL LIVE PASS。

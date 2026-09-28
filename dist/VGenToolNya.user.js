@@ -357,7 +357,9 @@
     chatQuickReplyPresets: "vgen-nya.text-presets.chat-quick-reply.v1",
     privateNotePresets: "vgen-nya.text-presets.private-note.v1",
     finalDeliveryPresets: "vgen-nya.text-presets.final-delivery.v1",
-    orderSettings: "vgen-nya.order-settings.v1"
+    orderSettings: "vgen-nya.order-settings.v1",
+    reviewProvider: "vgen-nya.review-provider.v1",
+    reviewSettings: "vgen-nya.review-settings.v1"
   });
   var isArray = Array.isArray;
   function requireArray(value, label) {
@@ -1571,11 +1573,11 @@ ${summary}
   function reactProps(element2) {
     return ownReactValue(element2, "__reactProps$");
   }
-  function expandableDisclosure(control2, surface) {
-    const content = control2.closest?.("[aria-hidden]");
+  function expandableDisclosure(control3, surface) {
+    const content = control3.closest?.("[aria-hidden]");
     const root = content?.parentElement;
     if (!root || !surface.contains(root)) return null;
-    let node = control2;
+    let node = control3;
     for (let nodeDepth = 0; node && nodeDepth < 8; nodeDepth += 1, node = node.parentElement || node.getRootNode?.()?.host || null) {
       let fiber = ownReactValue(node, "__reactFiber$") || ownReactValue(node, "__reactInternalInstance$");
       for (let depth = 0; fiber && depth < 45; depth += 1, fiber = fiber.return) {
@@ -1677,8 +1679,8 @@ ${summary}
   }
   function findDiscoveryBridge(surface) {
     const controls = surface.querySelectorAll('button, [role="button"], input[type="radio"], input[type="checkbox"]');
-    for (const control2 of controls) {
-      const bridge = walkAncestorProps(control2, (props) => {
+    for (const control3 of controls) {
+      const bridge = walkAncestorProps(control3, (props) => {
         if (props?.formValues && typeof props.formValues === "object" && typeof props.onFormValueChange === "function") {
           return { values: props.formValues, commit: props.onFormValueChange };
         }
@@ -1691,8 +1693,8 @@ ${summary}
   function findDiscoverySchema(surface) {
     const options = /* @__PURE__ */ new Map();
     const controls = surface.querySelectorAll('button, [role="button"], input[type="radio"], input[type="checkbox"]');
-    for (const control2 of controls) {
-      walkAncestorProps(control2, (props) => {
+    for (const control3 of controls) {
+      walkAncestorProps(control3, (props) => {
         const option = props?.option;
         const id = String(option?.optionID || "").trim();
         if (id && Array.isArray(option?.variants) && !options.has(id)) options.set(id, structuredClone(option));
@@ -1703,8 +1705,8 @@ ${summary}
   }
   function findSlateEditor(surface) {
     const controls = deepQueryAll(surface, '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"]');
-    for (const control2 of controls) {
-      const editor = walkAncestorProps(control2, (_props, fiber) => {
+    for (const control3 of controls) {
+      const editor = walkAncestorProps(control3, (_props, fiber) => {
         for (const candidate of fiberCandidates(fiber)) {
           let hook = candidate.memoizedState;
           for (let index = 0; hook && index < 40; index += 1, hook = hook.next) {
@@ -1730,8 +1732,8 @@ ${summary}
   }
   function findTextCommit(surface, kind) {
     const selector = kind === "title" ? 'input:not([type]), input[type="text"]' : '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"], textarea';
-    for (const control2 of deepQueryAll(surface, selector)) {
-      const commit = walkAncestorProps(control2, (props) => {
+    for (const control3 of deepQueryAll(surface, selector)) {
+      const commit = walkAncestorProps(control3, (props) => {
         if (kind === "title" && typeof props?.onChange === "function" && typeof props?.value === "string") return props.onChange;
         if (kind === "description") return props?.onEditCallback || props?.onValueChange || (typeof props?.onChange === "function" ? props.onChange : null);
         return null;
@@ -1834,8 +1836,8 @@ ${summary}
     }
     collapseDiscovery() {
       const disclosures = /* @__PURE__ */ new Map();
-      for (const control2 of this.surface.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
-        const disclosure = expandableDisclosure(control2, this.surface);
+      for (const control3 of this.surface.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
+        const disclosure = expandableDisclosure(control3, this.surface);
         if (disclosure) disclosures.set(disclosure.root, disclosure);
       }
       for (const disclosure of disclosures.values()) disclosure.collapse();
@@ -5188,6 +5190,845 @@ ${summary}
     }
   };
 
+  // src/review/default-system-prompt.js
+  var DEFAULT_SYSTEM_PROMPT = [
+    "You are a professional review-writing assistant for VGen, a commission marketplace.",
+    "",
+    "Write a natural, concise commission review that matches the requested sentiment degree.",
+    "",
+    "Rules:",
+    '- Respond with a single JSON object of the shape {"english": "...", "chinese": "..."} and nothing else.',
+    '- "english" is the final submit-ready English review.',
+    `- "chinese" is a faithful Chinese translation for the user's reference only; it is never submitted.`,
+    "- Keep every degree professional and submit-ready. Degrees 1-2 stay respectful, constructive and fair; never abusive, insulting, or overly emotional.",
+    "- Degree 3 is neutral and balanced (mixed feedback). Degrees 4-5 are increasingly positive.",
+    "- Do not invent facts, names, project details, or specifics beyond the supplied context.",
+    "- Use only the supplied keywords/notes as the review's basis.",
+    "- No markdown formatting unless explicitly required."
+  ].join("\n");
+
+  // src/review/review-config.js
+  var REVIEW_LENGTHS = Object.freeze(["Short", "Medium", "Long"]);
+  var REVIEW_STAR_DEGREES = Object.freeze([1, 2, 3, 4, 5]);
+  var DEFAULT_REVIEW_PROVIDER = Object.freeze({
+    baseUrl: "",
+    apiKey: "",
+    model: "",
+    systemPrompt: DEFAULT_SYSTEM_PROMPT
+  });
+  var DEFAULT_REVIEW_SETTINGS = Object.freeze({
+    defaultLength: "Medium",
+    defaultStarDegree: 3
+  });
+  var string2 = (value, maximum = Infinity) => typeof value === "string" ? value.slice(0, maximum) : "";
+  var clampDegree = (value) => {
+    const degree = Number(value);
+    return Number.isInteger(degree) && degree >= 1 && degree <= 5 ? degree : DEFAULT_REVIEW_SETTINGS.defaultStarDegree;
+  };
+  function normalizeReviewProviderConfig(value = {}) {
+    const source = isPlainObject(value) ? value : {};
+    return {
+      baseUrl: string2(source.baseUrl, 2048).trim(),
+      apiKey: string2(source.apiKey, 4096).trim(),
+      model: string2(source.model, 512).trim(),
+      systemPrompt: string2(source.systemPrompt, 16e3).trim() || DEFAULT_SYSTEM_PROMPT
+    };
+  }
+  function normalizeReviewSettings(value = {}) {
+    const source = isPlainObject(value) ? value : {};
+    const defaultLength = REVIEW_LENGTHS.includes(source.defaultLength) ? source.defaultLength : DEFAULT_REVIEW_SETTINGS.defaultLength;
+    return {
+      defaultLength,
+      defaultStarDegree: clampDegree(source.defaultStarDegree)
+    };
+  }
+  function isReviewProviderConfigured(provider) {
+    return Boolean(provider?.baseUrl && provider?.apiKey && provider?.model);
+  }
+  function maskApiKey(apiKey) {
+    const key = String(apiKey ?? "");
+    if (!key) return "";
+    if (key.length <= 8) return "••••••••";
+    return `${key.slice(0, 4)}…${key.slice(-4)}`;
+  }
+  var ReviewConfigRepository = class {
+    constructor(store) {
+      this.store = store;
+      this.listeners = /* @__PURE__ */ new Set();
+    }
+    read() {
+      return {
+        provider: normalizeReviewProviderConfig(this.store.read(CONFIG_KEYS.reviewProvider, DEFAULT_REVIEW_PROVIDER)),
+        settings: normalizeReviewSettings(this.store.read(CONFIG_KEYS.reviewSettings, DEFAULT_REVIEW_SETTINGS))
+      };
+    }
+    writeProvider(value) {
+      return this.#write(CONFIG_KEYS.reviewProvider, normalizeReviewProviderConfig(value), "review-provider");
+    }
+    writeSettings(value) {
+      return this.#write(CONFIG_KEYS.reviewSettings, normalizeReviewSettings(value), "review-settings");
+    }
+    subscribe(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    #write(key, value, domain) {
+      const stored = this.store.writeVerified(key, value, isPlainObject);
+      for (const listener of this.listeners) listener({ domain, value: cloneStorageValue(stored) });
+      return stored;
+    }
+  };
+
+  // src/review/review-provider-adapter.js
+  var REVIEW_PROVIDER_ERRORS = Object.freeze({
+    notConfigured: "PROVIDER_NOT_CONFIGURED",
+    network: "NETWORK_ERROR",
+    timeout: "TIMEOUT",
+    aborted: "ABORTED",
+    auth: "AUTH_ERROR",
+    rateLimit: "RATE_LIMIT",
+    http: "HTTP_ERROR",
+    invalidJson: "INVALID_JSON",
+    malformed: "MALFORMED_OUTPUT"
+  });
+  var ReviewProviderError = class extends Error {
+    constructor(code, message, details = {}) {
+      super(message);
+      this.name = "ReviewProviderError";
+      this.code = code;
+      this.details = details;
+    }
+  };
+  var LENGTH_GUIDE = Object.freeze({
+    Short: "one to two sentences",
+    Medium: "a short paragraph (three to four sentences)",
+    Long: "a detailed paragraph (five or more sentences)"
+  });
+  var STAR_DEGREE_GUIDE = Object.freeze({
+    1: "mildly critical but respectful, constructive and fair",
+    2: "slightly critical, noting minor issues fairly",
+    3: "neutral and balanced, mixed feedback",
+    4: "positive and appreciative",
+    5: "strongly positive and enthusiastic"
+  });
+  function buildChatCompletionsUrl(baseUrl) {
+    const base = String(baseUrl ?? "").trim().replace(/\/+$/, "");
+    return base ? `${base}/chat/completions` : "";
+  }
+  function buildReviewUserPrompt({ keywords = [], length = "Medium", starDegree = 3, distinctFromRecent = false } = {}) {
+    const lines = [
+      "Write a commission review with these parameters:",
+      `- Length: ${length} (${LENGTH_GUIDE[length] || LENGTH_GUIDE.Medium})`,
+      `- Sentiment degree: ${starDegree} of 5 (${STAR_DEGREE_GUIDE[starDegree] || STAR_DEGREE_GUIDE[3]})`
+    ];
+    const list = Array.isArray(keywords) ? keywords.map((keyword) => String(keyword).trim()).filter(Boolean) : [];
+    if (list.length) lines.push(`- Keywords/notes to incorporate: ${list.join(", ")}`);
+    if (distinctFromRecent) lines.push("- Phrase this differently from any wording you have produced before for this session.");
+    lines.push('Return only the JSON object {"english": "...", "chinese": "..."}.');
+    return lines.join("\n");
+  }
+  function stripCodeFence(text) {
+    const trimmed = String(text ?? "").trim();
+    const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return match ? match[1] : trimmed;
+  }
+  function parseReviewPayload(content) {
+    const text = stripCodeFence(content);
+    let value;
+    try {
+      value = JSON.parse(text);
+    } catch {
+      return { ok: false, code: REVIEW_PROVIDER_ERRORS.invalidJson, reason: "invalid-json" };
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { ok: false, code: REVIEW_PROVIDER_ERRORS.malformed, reason: "not-an-object" };
+    }
+    const english = typeof value.english === "string" ? value.english.trim() : "";
+    const chinese = typeof value.chinese === "string" ? value.chinese.trim() : "";
+    if (!english) return { ok: false, code: REVIEW_PROVIDER_ERRORS.malformed, reason: "missing-english" };
+    if (!chinese) return { ok: false, code: REVIEW_PROVIDER_ERRORS.malformed, reason: "missing-chinese" };
+    return { ok: true, english, chinese };
+  }
+  function errorFromStatus(status) {
+    if (status === 401 || status === 403) return REVIEW_PROVIDER_ERRORS.auth;
+    if (status === 429) return REVIEW_PROVIDER_ERRORS.rateLimit;
+    if (status >= 500) return REVIEW_PROVIDER_ERRORS.http;
+    return REVIEW_PROVIDER_ERRORS.http;
+  }
+  var ReviewProviderAdapter = class {
+    constructor({ fetchImpl = globalThis.fetch, AbortControllerClass = globalThis.AbortController, timeoutMs = 3e4, now = () => Date.now() } = {}) {
+      this.fetchImpl = fetchImpl;
+      this.AbortControllerClass = AbortControllerClass;
+      this.timeoutMs = timeoutMs;
+      this.now = now;
+    }
+    async generate({ config, keywords = [], length = "Medium", starDegree = 3, distinctFromRecent = false, signal } = {}) {
+      if (!config || !isReviewProviderConfigured(config)) {
+        throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.notConfigured, "Provider not configured");
+      }
+      const url = buildChatCompletionsUrl(config.baseUrl);
+      if (!url) throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.notConfigured, "Provider base URL is invalid");
+      if (typeof this.fetchImpl !== "function") {
+        throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.network, "Fetch is unavailable");
+      }
+      const body = {
+        model: config.model,
+        messages: [
+          { role: "system", content: config.systemPrompt },
+          { role: "user", content: buildReviewUserPrompt({ keywords, length, starDegree, distinctFromRecent }) }
+        ],
+        temperature: 0.9,
+        response_format: { type: "json_object" }
+      };
+      const response = await this.#fetchJson(url, config, body, signal);
+      const content = response?.choices?.[0]?.message?.content;
+      if (typeof content !== "string" || !content.trim()) {
+        throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.malformed, "Provider returned no message content");
+      }
+      const parsed = parseReviewPayload(content);
+      if (!parsed.ok) {
+        throw new ReviewProviderError(parsed.code, `Provider output was not a valid review (${parsed.reason})`, { reason: parsed.reason });
+      }
+      return { english: parsed.english, chinese: parsed.chinese };
+    }
+    async #fetchJson(url, config, body, signal) {
+      const controller = this.AbortControllerClass ? new this.AbortControllerClass() : null;
+      const onAbort = () => controller?.abort(signal?.reason ?? "review-generation-cancelled");
+      if (signal?.aborted) controller?.abort(signal.reason);
+      else if (signal) signal.addEventListener?.("abort", onAbort, { once: true });
+      const timer = typeof setTimeout === "function" ? setTimeout(() => controller?.abort("timeout"), this.timeoutMs) : null;
+      let response;
+      try {
+        response = await this.fetchImpl(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.apiKey}`
+          },
+          body: JSON.stringify(body),
+          signal: controller?.signal
+        });
+      } catch (error) {
+        if (error?.name === "AbortError" || error?.name === "TimeoutError") {
+          throw new ReviewProviderError(
+            signal?.aborted ? REVIEW_PROVIDER_ERRORS.aborted : REVIEW_PROVIDER_ERRORS.timeout,
+            signal?.aborted ? "Generation was cancelled" : "Provider request timed out"
+          );
+        }
+        throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.network, "Provider request failed", { cause: String(error?.message || error) });
+      } finally {
+        if (timer !== null) clearTimeout(timer);
+        signal?.removeEventListener?.("abort", onAbort);
+      }
+      if (!response?.ok) {
+        const status = Number(response.status) || 0;
+        throw new ReviewProviderError(errorFromStatus(status), `Provider request failed (HTTP ${status})`, { status });
+      }
+      try {
+        return await response.json();
+      } catch {
+        throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.malformed, "Provider returned an invalid JSON body");
+      }
+    }
+  };
+
+  // src/review/review-candidate.js
+  var FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+  var FNV_PRIME = 0x100001b3n;
+  function normalizeEnglishForHash(english) {
+    return String(english ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  }
+  function reviewEnglishHash(english) {
+    const normalized = normalizeEnglishForHash(english);
+    let hash = FNV_OFFSET_BASIS;
+    for (let index = 0; index < normalized.length; index += 1) {
+      hash ^= BigInt(normalized.charCodeAt(index));
+      hash = BigInt.asUintN(64, hash * FNV_PRIME);
+    }
+    return hash.toString(16).padStart(16, "0");
+  }
+  function normalizeReviewCandidate(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const english = typeof value.english === "string" ? value.english.trim() : "";
+    if (!english) return null;
+    const candidate = {
+      english,
+      chinese: typeof value.chinese === "string" ? value.chinese.trim() : "",
+      keywords: Array.isArray(value.keywords) ? value.keywords.map((keyword) => String(keyword)).filter(Boolean) : typeof value.keywords === "string" && value.keywords.trim() ? [value.keywords.trim()] : []
+    };
+    if (value.length) candidate.length = value.length;
+    if (Number.isFinite(value.starDegree)) candidate.starDegree = value.starDegree;
+    if (value.generatedAt) candidate.generatedAt = value.generatedAt;
+    if (value.duplicate) candidate.duplicate = true;
+    candidate.hash = reviewEnglishHash(english);
+    return candidate;
+  }
+
+  // src/review/review-session.js
+  var REVIEW_SESSION_STATES = Object.freeze({
+    idle: "idle",
+    generating: "generating",
+    ready: "ready",
+    error: "error"
+  });
+  var MAX_DEDUPE_RETRIES = 1;
+  var ReviewSession = class {
+    constructor({ sessionId, adapter, history, providerRepository, AbortControllerClass = globalThis.AbortController, now = () => Date.now() } = {}) {
+      this.sessionId = sessionId;
+      this.adapter = adapter;
+      this.history = history;
+      this.providerRepository = providerRepository;
+      this.AbortControllerClass = AbortControllerClass;
+      this.now = now;
+      this.state = REVIEW_SESSION_STATES.idle;
+      this.candidate = null;
+      this.error = null;
+      this.lock = false;
+      this.generated = false;
+      this.operation = 0;
+      this.abortController = null;
+      this.listeners = /* @__PURE__ */ new Set();
+    }
+    subscribe(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    get snapshot() {
+      return {
+        sessionId: this.sessionId,
+        state: this.state,
+        candidate: this.candidate,
+        error: this.error,
+        generated: this.generated,
+        generating: this.lock
+      };
+    }
+    isGenerating() {
+      return this.lock;
+    }
+    async generate({ keywords = [], length = "Medium", starDegree = 3 } = {}) {
+      if (this.lock) return false;
+      const config = this.providerRepository.read().provider;
+      if (!isReviewProviderConfigured(config)) {
+        this.state = REVIEW_SESSION_STATES.error;
+        this.error = { code: "PROVIDER_NOT_CONFIGURED", message: "Provider not configured" };
+        this.#emit();
+        return false;
+      }
+      this.lock = true;
+      this.state = REVIEW_SESSION_STATES.generating;
+      this.error = null;
+      this.#emit();
+      const operation = ++this.operation;
+      const controller = this.AbortControllerClass ? new this.AbortControllerClass() : null;
+      this.abortController = controller;
+      try {
+        let result = await this.adapter.generate({ config, keywords, length, starDegree, signal: controller?.signal });
+        if (operation !== this.operation) return false;
+        for (let attempt = 0; attempt < MAX_DEDUPE_RETRIES && this.history.has(result.english); attempt += 1) {
+          result = await this.adapter.generate({ config, keywords, length, starDegree, distinctFromRecent: true, signal: controller?.signal });
+          if (operation !== this.operation) return false;
+        }
+        const candidate = normalizeReviewCandidate({
+          ...result,
+          keywords,
+          length,
+          starDegree,
+          generatedAt: this.now(),
+          duplicate: this.history.has(result.english)
+        });
+        if (!candidate) throw Object.assign(new Error("Provider produced an empty review"), { code: "MALFORMED_OUTPUT" });
+        this.history.record(candidate.english);
+        this.candidate = candidate;
+        this.generated = true;
+        this.state = REVIEW_SESSION_STATES.ready;
+        this.#emit();
+        return true;
+      } catch (error) {
+        if (operation !== this.operation) return false;
+        this.lock = false;
+        this.abortController = null;
+        this.state = REVIEW_SESSION_STATES.error;
+        this.error = { code: error?.code || "UNKNOWN", message: error?.message || String(error) };
+        this.#emit();
+        return false;
+      } finally {
+        if (operation === this.operation) {
+          this.lock = false;
+          this.abortController = null;
+        }
+      }
+    }
+    async regenerate(params = {}) {
+      return this.generate(params);
+    }
+    dispose(reason = "review-session-closed") {
+      this.operation += 1;
+      this.abortController?.abort(reason);
+      this.abortController = null;
+      this.lock = false;
+      this.listeners.clear();
+    }
+    #emit() {
+      const snapshot = this.snapshot;
+      for (const listener of this.listeners) listener(snapshot);
+    }
+  };
+
+  // src/review/review-editor-adapter.js
+  var ReviewEditorTarget = class {
+    constructor(element2) {
+      if (!element2) throw new TypeError("Review editor target requires an element");
+      this.element = element2;
+      this.native = new NativeTextTarget(element2);
+    }
+    read() {
+      return this.native.read();
+    }
+    async fill(text, { replace = false } = {}) {
+      return this.native.fillText(text, { replace });
+    }
+  };
+  function defaultReviewEditorDetect(root) {
+    if (!root?.querySelectorAll) return null;
+    if (root.matches?.("textarea")) return root;
+    const textarea = root.querySelector("textarea");
+    if (textarea) return textarea;
+    const editable = root.querySelector('[contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]');
+    if (editable) return editable;
+    return null;
+  }
+  var ReviewEditorAdapter = class {
+    constructor({ detect = defaultReviewEditorDetect } = {}) {
+      this.detect = detect;
+    }
+    resolve(root) {
+      const element2 = this.detect(root);
+      return element2 ? new ReviewEditorTarget(element2) : null;
+    }
+  };
+
+  // src/review/review-history.js
+  var REVIEW_HISTORY_LIMIT = 12;
+  var RecentReviewHistory = class {
+    constructor({ limit = REVIEW_HISTORY_LIMIT } = {}) {
+      this.limit = Math.max(1, Number(limit) || REVIEW_HISTORY_LIMIT);
+      this.hashes = [];
+    }
+    has(english) {
+      return this.hashes.includes(reviewEnglishHash(english));
+    }
+    record(english) {
+      const hash = reviewEnglishHash(english);
+      const existing = this.hashes.indexOf(hash);
+      if (existing >= 0) this.hashes.splice(existing, 1);
+      this.hashes.push(hash);
+      if (this.hashes.length > this.limit) this.hashes.splice(0, this.hashes.length - this.limit);
+      return hash;
+    }
+    clear() {
+      this.hashes = [];
+    }
+    get size() {
+      return this.hashes.length;
+    }
+    snapshot() {
+      return [...this.hashes];
+    }
+  };
+
+  // src/review/review-assistant.js
+  var REVIEW_ASSISTANT_CSS = `
+.vgen-nya-review-assistant{margin:8px 0;padding:10px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:9px;background:color-mix(in srgb,currentColor 5%,transparent);color:inherit;font:12px/1.5 system-ui,sans-serif;max-width:100%;position:relative}
+.vgen-nya-review-assistant__controls{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.vgen-nya-review-assistant input,.vgen-nya-review-assistant select{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 7px;background:Canvas;color:CanvasText;font:inherit;min-width:0}
+.vgen-nya-review-assistant__keywords{flex:1 1 180px}
+.vgen-nya-review-assistant button{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 9px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}
+.vgen-nya-review-assistant button:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
+.vgen-nya-review-assistant button:disabled{opacity:.5;cursor:default}
+.vgen-nya-review-assistant__status{margin:7px 0 0;opacity:.78}
+.vgen-nya-review-assistant__status[data-error="true"]{color:#b42318}
+.vgen-nya-review-assistant__result{margin-top:8px;display:grid;gap:8px}
+.vgen-nya-review-assistant__block{border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;padding:8px;background:color-mix(in srgb,currentColor 4%,transparent)}
+.vgen-nya-review-assistant__label{display:block;margin-bottom:4px;font-weight:650;opacity:.82}
+.vgen-nya-review-assistant__body{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;cursor:text}
+.vgen-nya-review-assistant__actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+`;
+  function make9(documentObject, tagName, className = "", text = "") {
+    const node = documentObject.createElement(tagName);
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+  function control2(documentObject, text, action) {
+    const button = make9(documentObject, "button", "notranslate", text);
+    button.type = "button";
+    button.translate = false;
+    button.dataset.action = action;
+    return button;
+  }
+  var ERROR_LABELS = Object.freeze({
+    PROVIDER_NOT_CONFIGURED: "Provider 未配置",
+    AUTH_ERROR: "认证失败（401 / 403）",
+    RATE_LIMIT: "请求过于频繁（429），请稍后重试",
+    HTTP_ERROR: "Provider 服务错误",
+    NETWORK_ERROR: "网络错误",
+    TIMEOUT: "请求超时",
+    INVALID_JSON: "Provider 输出不是有效 JSON",
+    MALFORMED_OUTPUT: "Provider 输出格式不正确",
+    ABORTED: "生成已取消"
+  });
+  function errorLabel(code) {
+    return ERROR_LABELS[code] || "生成失败";
+  }
+  function splitKeywords(value) {
+    return String(value ?? "").split(/[,，]/).map((keyword) => keyword.trim()).filter(Boolean);
+  }
+  var ReviewAssistantSession = class {
+    constructor({ surface, providerRepository, adapter, history, clipboard, AbortControllerClass = globalThis.AbortController, sessionId = "review-session", now = () => Date.now() } = {}) {
+      this.surface = surface;
+      this.providerRepository = providerRepository;
+      this.clipboard = clipboard;
+      this.model = new ReviewSession({ sessionId, adapter, history, providerRepository, AbortControllerClass, now });
+      this.unsubscribe = this.model.subscribe(() => this.#render());
+      this.root = null;
+      this.feedbackTimers = /* @__PURE__ */ new Set();
+      this.mounted = false;
+      this.autoGenerated = false;
+      const settings = providerRepository.read().settings;
+      this.keywordsText = "";
+      this.length = settings.defaultLength;
+      this.starDegree = settings.defaultStarDegree;
+    }
+    mount() {
+      if (this.mounted) return false;
+      const documentObject = this.surface?.mountTarget?.ownerDocument || this.surface?.editor?.element?.ownerDocument;
+      if (!documentObject) return false;
+      this.mounted = true;
+      this.root = make9(documentObject, "section", "vgen-nya-review-assistant");
+      this.root.dataset.vgenNyaUi = "review-assistant";
+      this.root.setAttribute("aria-label", "Review Assistant");
+      const mountPoint = this.surface.mountTarget || this.surface.editor?.element?.parentElement || documentObject.body;
+      mountPoint.append(this.root);
+      this.#render();
+      if (isReviewProviderConfigured(this.providerRepository.read().provider)) this.#autoGenerateOnce();
+      return true;
+    }
+    #autoGenerateOnce() {
+      if (this.autoGenerated || this.model.isGenerating()) return;
+      this.autoGenerated = true;
+      void this.model.generate({ length: this.length, starDegree: this.starDegree });
+    }
+    #render() {
+      if (!this.root) return;
+      const documentObject = this.root.ownerDocument;
+      this.root.replaceChildren();
+      const snapshot = this.model.snapshot;
+      this.root.append(this.#controls(documentObject, snapshot), this.#status(documentObject, snapshot));
+      if (snapshot.candidate) this.root.append(this.#result(documentObject, snapshot));
+    }
+    #controls(documentObject, snapshot) {
+      const wrap = make9(documentObject, "div", "vgen-nya-review-assistant__controls");
+      const keywords = make9(documentObject, "input", "vgen-nya-review-assistant__keywords");
+      keywords.value = this.keywordsText;
+      keywords.placeholder = "关键词 / 要点（逗号分隔，可选）";
+      keywords.dataset.role = "keywords";
+      const length = make9(documentObject, "select");
+      for (const option of REVIEW_LENGTHS) {
+        const node = make9(documentObject, "option", "", option);
+        node.value = option;
+        length.append(node);
+      }
+      length.value = this.length;
+      length.dataset.role = "length";
+      const star = make9(documentObject, "select");
+      for (const degree of REVIEW_STAR_DEGREES) {
+        const node = make9(documentObject, "option", "", `${degree} 星`);
+        node.value = String(degree);
+        star.append(node);
+      }
+      star.value = String(this.starDegree);
+      star.dataset.role = "star";
+      const generate = control2(documentObject, snapshot.candidate ? "Regenerate" : "Generate", "generate");
+      generate.disabled = snapshot.generating;
+      generate.addEventListener("click", () => void this.#generate());
+      wrap.append(keywords, length, star, generate);
+      return wrap;
+    }
+    #status(documentObject, snapshot) {
+      const status = make9(documentObject, "p", "vgen-nya-review-assistant__status notranslate");
+      status.translate = false;
+      if (snapshot.generating) {
+        status.textContent = "生成中…";
+        return status;
+      }
+      if (snapshot.error) {
+        status.textContent = errorLabel(snapshot.error.code);
+        status.dataset.error = "true";
+        return status;
+      }
+      const provider = this.providerRepository.read().provider;
+      if (!isReviewProviderConfigured(provider)) {
+        status.textContent = "Provider not configured — 请在「设置 → 评价助手 → Provider」中配置";
+        status.dataset.error = "true";
+        return status;
+      }
+      return status;
+    }
+    #result(documentObject, snapshot) {
+      const result = make9(documentObject, "div", "vgen-nya-review-assistant__result");
+      result.append(this.#block(documentObject, "English（最终提交文本）", snapshot.candidate.english));
+      result.append(this.#block(documentObject, "中文对照（仅参考，不写入）", snapshot.candidate.chinese));
+      const actions = make9(documentObject, "div", "vgen-nya-review-assistant__actions");
+      const copyEnglish = control2(documentObject, "Copy English", "copy-english");
+      const copyChinese = control2(documentObject, "Copy Chinese", "copy-chinese");
+      const fill = control2(documentObject, "Fill Review", "fill");
+      copyEnglish.addEventListener("click", () => void this.#copy(this.model.candidate?.english, copyEnglish));
+      copyChinese.addEventListener("click", () => void this.#copy(this.model.candidate?.chinese, copyChinese));
+      fill.addEventListener("click", () => void this.#fill());
+      actions.append(copyEnglish, copyChinese, fill);
+      result.append(actions);
+      return result;
+    }
+    #block(documentObject, label, text) {
+      const block = make9(documentObject, "div", "vgen-nya-review-assistant__block");
+      const head = make9(documentObject, "span", "vgen-nya-review-assistant__label notranslate", label);
+      head.translate = false;
+      const body = make9(documentObject, "p", "vgen-nya-review-assistant__body", text);
+      body.translate = true;
+      block.append(head, body);
+      return block;
+    }
+    async #generate() {
+      const { keywords, length, starDegree } = this.#readControls();
+      await this.model.generate({ keywords, length, starDegree });
+    }
+    #readControls() {
+      const root = this.root;
+      const keywords = splitKeywords(root.querySelector?.('[data-role="keywords"]')?.value);
+      const length = root.querySelector?.('[data-role="length"]')?.value || "Medium";
+      const starDegree = Number(root.querySelector?.('[data-role="star"]')?.value) || 3;
+      return { keywords, length, starDegree };
+    }
+    async #copy(value, button) {
+      if (!value) return;
+      const original = button.textContent;
+      try {
+        await this.clipboard.writeText(value);
+        button.textContent = "Copied";
+      } catch {
+        button.textContent = "Copy failed";
+      } finally {
+        const expected = button.textContent;
+        const timer = globalThis.setTimeout(() => {
+          this.feedbackTimers.delete(timer);
+          if (button.isConnected !== false && button.textContent === expected) button.textContent = original;
+        }, 1200);
+        this.feedbackTimers.add(timer);
+      }
+    }
+    async #fill() {
+      const english = this.model.candidate?.english;
+      const editor = this.surface?.editor;
+      if (!english || !editor) return;
+      const current = editor.read();
+      try {
+        if (current && current !== english) {
+          const view = this.root?.ownerDocument?.defaultView || globalThis;
+          if (view.confirm?.("评价框已有内容。确认替换为生成的英文评价吗？") !== true) return;
+          await editor.fill(english, { replace: true });
+        } else {
+          await editor.fill(english);
+        }
+      } catch {
+      }
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.mounted = false;
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+      for (const timer of this.feedbackTimers) globalThis.clearTimeout(timer);
+      this.feedbackTimers.clear();
+      this.model.dispose("review-session-closed");
+      this.root?.remove();
+      this.root = null;
+      return true;
+    }
+  };
+  var ReviewAssistantRuntime = class {
+    constructor({ repository, adapter, history, clipboard, editorAdapter, documentObject = globalThis.document, AbortControllerClass = globalThis.AbortController, sessionIdFactory, now = () => Date.now() } = {}) {
+      this.repository = repository;
+      this.adapter = adapter || new ReviewProviderAdapter({ fetchImpl: globalThis.fetch?.bind(globalThis), AbortControllerClass });
+      this.history = history || new RecentReviewHistory();
+      this.clipboard = clipboard;
+      this.editorAdapter = editorAdapter || new ReviewEditorAdapter();
+      this.documentObject = documentObject;
+      this.AbortControllerClass = AbortControllerClass;
+      this.now = now;
+      this.sequence = 0;
+      this.sessionIdFactory = sessionIdFactory || (() => {
+        this.sequence += 1;
+        return `review-${this.sequence}`;
+      });
+      this.current = null;
+      this.style = null;
+      this.mounted = false;
+    }
+    // REVIEW-LIVE-01 is blocked: the real VGen review surface is not verified,
+    // so this runtime installs no observers or timers. openSurface is the only
+    // entry point and is exercised by tests/future live integration.
+    mount() {
+      if (this.mounted || !this.documentObject?.body) return false;
+      this.mounted = true;
+      this.style = this.documentObject.createElement("style");
+      this.style.dataset.vgenNyaUi = "review-assistant-style";
+      this.style.textContent = REVIEW_ASSISTANT_CSS;
+      (this.documentObject.head || this.documentObject.body).append(this.style);
+      return true;
+    }
+    openSurface(surface) {
+      this.#release();
+      const editor = surface?.editor || (surface?.root ? this.editorAdapter.resolve(surface.root) : null);
+      if (!editor) return false;
+      const mountTarget = surface?.mountTarget || editor.element?.parentElement || surface?.root || this.documentObject.body;
+      const session = new ReviewAssistantSession({
+        surface: { editor, mountTarget },
+        providerRepository: this.repository,
+        adapter: this.adapter,
+        history: this.history,
+        clipboard: this.clipboard,
+        AbortControllerClass: this.AbortControllerClass,
+        sessionId: this.sessionIdFactory(),
+        now: this.now
+      });
+      if (!session.mount()) return false;
+      this.current = { surface: { editor, mountTarget }, session };
+      return true;
+    }
+    closeSurface() {
+      this.#release();
+    }
+    #release() {
+      this.current?.session?.unmount();
+      this.current = null;
+    }
+    activate() {
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.#release();
+      this.style?.remove();
+      this.style = null;
+      this.mounted = false;
+      return true;
+    }
+    dispose() {
+      this.unmount();
+      this.history.clear();
+    }
+  };
+
+  // src/settings/review-settings.js
+  function make10(documentObject, tag, attributes = {}, text = "") {
+    const node = documentObject.createElement(tag);
+    for (const [key, value] of Object.entries(attributes)) {
+      if (key === "dataset") Object.assign(node.dataset, value);
+      else if (key in node) node[key] = value;
+      else node.setAttribute(key, value);
+    }
+    if (text) node.textContent = text;
+    return node;
+  }
+  function renderGeneration(repository) {
+    return ({ documentObject, body, use }) => {
+      const render = () => {
+        const settings = repository.read().settings;
+        const length = make10(documentObject, "select", { dataset: { setting: "defaultLength" } });
+        for (const option of REVIEW_LENGTHS) length.append(make10(documentObject, "option", { value: option }, option));
+        length.value = settings.defaultLength;
+        const star = make10(documentObject, "select", { dataset: { setting: "defaultStarDegree" } });
+        for (const degree of REVIEW_STAR_DEGREES) star.append(make10(documentObject, "option", { value: String(degree) }, `${degree} 星`));
+        star.value = String(settings.defaultStarDegree);
+        const row = make10(documentObject, "div", { className: "vgen-nya-settings__check" });
+        row.append(
+          make10(documentObject, "label", {}, "默认长度 "),
+          length,
+          make10(documentObject, "label", {}, " 默认星级倾向 "),
+          star
+        );
+        body.replaceChildren(
+          make10(documentObject, "p", { className: "vgen-nya-settings__hint" }, "生成评价时的默认参数。星级 1～5 表示「希望生成的评价倾向程度」，不是改写 VGen 的真实评分。"),
+          row
+        );
+      };
+      const onChange = (event) => {
+        const key = event.target?.dataset?.setting;
+        if (!key) return;
+        const settings = repository.read().settings;
+        settings[key] = key === "defaultStarDegree" ? Number(event.target.value) : event.target.value;
+        repository.writeSettings(settings);
+      };
+      body.addEventListener("change", onChange);
+      use(() => body.removeEventListener("change", onChange));
+      render();
+    };
+  }
+  function renderProvider(repository) {
+    return ({ documentObject, body, use }) => {
+      const render = () => {
+        const provider = repository.read().provider;
+        const configured = isReviewProviderConfigured(provider);
+        const status = make10(
+          documentObject,
+          "p",
+          { className: "vgen-nya-settings__hint" },
+          configured ? `已配置 Provider（API Key ${maskApiKey(provider.apiKey)}）` : "尚未配置 Provider。"
+        );
+        const baseUrl = make10(documentObject, "input", { type: "text", value: provider.baseUrl, placeholder: "https://api.openai.com/v1", dataset: { setting: "baseUrl" }, "aria-label": "Base URL" });
+        const apiKey = make10(documentObject, "input", { type: "password", value: provider.apiKey, placeholder: "sk-…", dataset: { setting: "apiKey" }, autocomplete: "off", "aria-label": "API Key" });
+        const model = make10(documentObject, "input", { type: "text", value: provider.model, placeholder: "gpt-4o-mini", dataset: { setting: "model" }, "aria-label": "Model" });
+        const systemPrompt = make10(documentObject, "textarea", { rows: 8, dataset: { setting: "systemPrompt" }, "aria-label": "System Prompt" });
+        systemPrompt.value = provider.systemPrompt;
+        const field = (label, input) => {
+          const row = make10(documentObject, "label", { className: "vgen-nya-settings__check" });
+          row.append(make10(documentObject, "span", {}, label), input);
+          return row;
+        };
+        body.replaceChildren(
+          status,
+          field("Base URL（OpenAI Compatible）", baseUrl),
+          field("API Key（仅本地保存，不明文常显）", apiKey),
+          field("Model", model),
+          field("System Prompt", systemPrompt)
+        );
+      };
+      const onChange = (event) => {
+        const key = event.target?.dataset?.setting;
+        if (!key) return;
+        const provider = repository.read().provider;
+        provider[key] = event.target.value;
+        repository.writeProvider(provider);
+      };
+      body.addEventListener("change", onChange);
+      use(() => body.removeEventListener("change", onChange));
+      render();
+    };
+  }
+  function createReviewSettingsNavigation({ repository }, baseNavigation) {
+    return baseNavigation.map((item) => item.id !== "reviews" ? item : {
+      ...item,
+      tabs: [
+        { id: "generate", label: "生成", sections: [
+          { id: "generation", title: "生成参数", description: "关键词由业务页面按 session 输入；这里只设置默认长度与星级倾向。", render: renderGeneration(repository) }
+        ] },
+        { id: "provider", label: "Provider", sections: [
+          { id: "provider-config", title: "Provider 配置（OpenAI Compatible）", description: "API Key 仅本地保存，不硬编码、不进入日志或诊断报告。", render: renderProvider(repository) }
+        ] }
+      ]
+    });
+  }
+
   // src/index.js
   function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow: pageWindow2 = gm } = {}) {
     const store = new ConfigStore(storageDriver || createGMStorageDriver(gm));
@@ -5195,6 +6036,7 @@ ${summary}
     const uploadRepository = new UploadConfigRepository(store);
     const chatRepository = new ChatConfigRepository(store);
     const orderRepository = new OrderConfigRepository(store);
+    const reviewRepository = new ReviewConfigRepository(store);
     const textPresetStore = new TextPresetStore({ store, uploadRepository });
     const textPresetRegistry = new TextPresetContextRegistry();
     textPresetRegistry.register(TEXT_PRESET_CONTEXTS.uploadTitle, new UploadTitlePresetAdapter());
@@ -5207,7 +6049,7 @@ ${summary}
     let diagnostics;
     const networkHooks = new ChatNetworkHooks({ windowObject: pageWindow2, readGate, onDiagnosticEvent: (event) => diagnostics?.record(event) });
     diagnostics = new ChatDiagnostics({ networkHooks });
-    const navigation = createOrderSettingsNavigation({ engine: textPresetEngine, repository: orderRepository }, createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION, textPresetEngine), textPresetEngine));
+    const navigation = createReviewSettingsNavigation({ repository: reviewRepository }, createOrderSettingsNavigation({ engine: textPresetEngine, repository: orderRepository }, createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION, textPresetEngine), textPresetEngine)));
     const settingsShell = createSettingsShell({ navigation });
     const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, textPresetEngine, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
     const chat = new ChatService({ documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
@@ -5217,12 +6059,15 @@ ${summary}
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
     const clientReviewAdapter = new ClientReviewAdapter({ fetchImpl: pageWindow2.fetch?.bind(pageWindow2), DOMParserClass: pageWindow2.DOMParser });
     const orderAssistant = new OrderAssistantRuntime({ repository: orderRepository, clipboard, adapter: clientReviewAdapter, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver, AbortControllerClass: pageWindow2.AbortController });
+    const reviewAdapter = new ReviewProviderAdapter({ fetchImpl: pageWindow2.fetch?.bind(pageWindow2), AbortControllerClass: pageWindow2.AbortController });
+    const reviewAssistant = new ReviewAssistantRuntime({ repository: reviewRepository, adapter: reviewAdapter, clipboard, documentObject: pageWindow2.document, AbortControllerClass: pageWindow2.AbortController });
     modules.register("settings", settingsShell);
     modules.register("upload-assistant", uploadAssistant);
     modules.register("chat-assistant", chatAssistant);
     modules.register("frequent-clients", frequentClients);
     modules.register("order-text-presets", orderTextPresets);
     modules.register("order-assistant", orderAssistant);
+    modules.register("review-assistant", reviewAssistant);
     return {
       store,
       modules,
@@ -5239,6 +6084,8 @@ ${summary}
       orderAssistant,
       orderRepository,
       clientReviewAdapter,
+      reviewRepository,
+      reviewAssistant,
       chat,
       diagnostics,
       networkHooks,
@@ -5288,6 +6135,13 @@ ${summary}
       },
       unmountOrderAssistant() {
         modules.unmount("order-assistant");
+      },
+      mountReviewAssistant() {
+        modules.mount("review-assistant");
+        modules.activate("review-assistant");
+      },
+      unmountReviewAssistant() {
+        modules.unmount("review-assistant");
       },
       dispose() {
         modules.disposeAll();
@@ -5368,6 +6222,7 @@ ${summary}
     core.mountChatAssistant();
     core.mountFrequentClients();
     core.mountOrderAssistant();
+    core.mountReviewAssistant();
   }
   start();
 })();
