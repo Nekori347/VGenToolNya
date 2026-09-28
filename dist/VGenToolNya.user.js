@@ -5320,6 +5320,80 @@ ${CHAT_SEARCH_CSS}
     }
   };
 
+  // src/order/export-adapter.js
+  var ORDER_EXPORT_SCHEMA_VERSION = 1;
+  var REVIEW_STATES = new Set(Object.values(REVIEW_SOURCE_STATES));
+  function stringValue(value) {
+    return typeof value === "string" ? value : "";
+  }
+  function optionalString(value) {
+    return typeof value === "string" && value ? value : null;
+  }
+  function optionalNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+  function optionalBoolean(value) {
+    return typeof value === "boolean" ? value : null;
+  }
+  function normalizeOrderClient(identity) {
+    if (!identity || typeof identity !== "object") return { clientId: "", handle: "", profileUrl: "" };
+    return {
+      clientId: stringValue(identity.clientId),
+      handle: stringValue(identity.handle),
+      profileUrl: stringValue(identity.profileUrl)
+    };
+  }
+  function reviewNegative(review) {
+    if (typeof review.negative === "boolean") return review.negative;
+    if (typeof review.wouldRecommend === "boolean") return !review.wouldRecommend;
+    const rating = Number(review.rating);
+    if (Number.isFinite(rating) && rating >= 1 && rating <= 5) return rating < 5;
+    return false;
+  }
+  function normalizeOrderReview(review) {
+    if (!review || typeof review !== "object") return null;
+    const body = stringValue(review.body);
+    if (!body) return null;
+    return {
+      body,
+      negative: reviewNegative(review),
+      rating: optionalNumber(review.rating),
+      wouldRecommend: optionalBoolean(review.wouldRecommend),
+      reviewer: optionalString(review.reviewer),
+      date: optionalString(review.date),
+      context: optionalString(review.context)
+    };
+  }
+  function normalizeOrder(identity, reviewContext) {
+    const source = reviewContext && typeof reviewContext === "object" ? reviewContext : {};
+    const reviews = Array.isArray(source.reviews) ? source.reviews.map(normalizeOrderReview).filter(Boolean) : [];
+    const negativeCount = Number.isFinite(Number(source.negativeCount)) ? Number(source.negativeCount) : reviews.filter((review) => review.negative).length;
+    return {
+      schemaVersion: ORDER_EXPORT_SCHEMA_VERSION,
+      client: normalizeOrderClient(identity),
+      review: {
+        state: REVIEW_STATES.has(source.state) ? source.state : "",
+        reviews,
+        negativeCount,
+        fetchedAt: optionalNumber(source.fetchedAt)
+      }
+    };
+  }
+  var ExportAdapter = class {
+    normalize(identity, reviewContext) {
+      return normalizeOrder(identity, reviewContext);
+    }
+    // JSON round-trip guarantees the result is a plain object with no DOM
+    // nodes, functions or circular references, and is JSON.stringify-able.
+    toJSON(order) {
+      return JSON.parse(JSON.stringify(order ?? null));
+    }
+    serialize(order) {
+      return JSON.stringify(this.toJSON(order));
+    }
+  };
+
   // src/order/order-detail-lifecycle.js
   var COMMISSION_ID = /\bCOMM#\s*[A-Z0-9]{8,16}\b/i;
   var COMMISSION_MODAL_SELECTOR = '[class*="CommissionModal__Container"]';
@@ -5617,6 +5691,11 @@ ${CHAT_SEARCH_CSS}
         popover.append(article);
       }
       return popover;
+    }
+    // Reuses the already-fetched identity + review context (no re-scrape) to
+    // produce the JSON-safe NormalizedOrder a future exporter can consume.
+    exportOrder() {
+      return new ExportAdapter().toJSON(normalizeOrder(this.identity, this.result));
     }
     async copy(value, button) {
       if (!value) return false;
