@@ -70,12 +70,12 @@
 - 模型强度：Medium
 
 ## Iteration 5 — Order Assistant（Copy ID / URL / Client Background）
-- Status：**AUTOMATION GATE PASS / LIVE PENDING**（`npm test` 95/95、L1 63/63、L2 73/73、`release:check` 26/26；尚未启动 Chrome）
+- Status：**LIVE CORE PASS / REVIEW SCHEMA RESOLVED**（`npm test` 100/100、`release:check` 26/26；Chrome Live 已验证 Detail lifecycle / Copy / cache / 零写请求；二元 `wouldRecommend === false` 已取代冻结 `rating < 5` 作为负向风险语义）
 - Goal：所有可打开的 Order / Commission Detail Panel 挂 Copy Client ID / Profile URL 与公开低星评价提醒（缓存）
 - Modules：Order Assistant、Client Background / Client Review Context
 - Non-goals：不改订单状态、不接飞书
 - Dependencies：I1、I3
-- Acceptance：不受订单状态限制，详情 client 区块可复制；rating<5 显示风险提醒并可查看相关公开评价内容
+- Acceptance：不受订单状态限制，详情 client 区块可复制；二元「不推荐」显示风险提醒并可查看相关公开评价内容
 - L1：Copy Client ID / Profile URL；L2：公开评价提醒+合理缓存
 - Browser 验证：`ORDER-BACKGROUND-LIVE-01 = SAFE_TEST_SURFACE_AVAILABLE`；只读使用当前待接收订单详情，不 Accept/Decline、不改状态、不发消息、不保存 Note、不 Delivery
 - STOP：任何订单写操作

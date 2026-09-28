@@ -60,16 +60,16 @@ test('Iteration 5 L1: Copy ID uses the public handle and Copy Profile URL is can
     assert.deepEqual(writes, ['@Client_Name-1', 'https://vgen.co/Client_Name-1']);
 });
 
-test('Iteration 5 L1: public review normalization distinguishes five-star, low, empty and malformed data', () => {
+test('Iteration 5 L1: public review normalization distinguishes five-star, negative, empty and malformed data', () => {
     const client = identity('client-a');
     const five = normalizeReviewContext({ reviews: [{ rating: 5, body: 'Great client' }] }, client, 10);
     assert.equal(five.state, REVIEW_SOURCE_STATES.success);
-    assert.equal(five.lowRatingReviews.length, 0);
+    assert.equal(five.negativeReviews.length, 0);
 
     const oneLow = normalizeReviewContext({ reviews: [{ rating: 5, body: 'A' }, { rating: 4, body: 'B' }] }, client, 11);
-    assert.deepEqual(oneLow.lowRatingReviews.map((review) => review.rating), [4]);
+    assert.deepEqual(oneLow.negativeReviews.map((review) => review.rating), [4]);
     const multiple = normalizeReviewContext({ reviews: [{ score: 3, text: 'C' }, { stars: 2, comment: 'D' }] }, client, 12);
-    assert.deepEqual(multiple.lowRatingReviews.map((review) => review.rating), [3, 2]);
+    assert.deepEqual(multiple.negativeReviews.map((review) => review.rating), [3, 2]);
 
     assert.equal(normalizeReviewContext({ reviews: [] }, client).state, REVIEW_SOURCE_STATES.empty);
     assert.equal(normalizeReviewContext({ somethingElse: [] }, client).state, REVIEW_SOURCE_STATES.unavailable);
@@ -78,15 +78,19 @@ test('Iteration 5 L1: public review normalization distinguishes five-star, low, 
     assert.equal(normalizePublicReview({ rating: 4, body: 'Keep exact body', reviewer: 'Anonymous' }).body, 'Keep exact body');
 });
 
-test('Iteration 5 L1: current binary client-review payload is not mislabeled as star-rating success', () => {
+test('Iteration 5 L1: current binary client-review payload normalizes recommendation and non-recommendation', () => {
     const client = identity('binary-client');
     const result = normalizeReviewContext([
         { wouldRecommend: true, reviewText: 'Public recommendation text' },
         { wouldRecommend: false, reviewText: 'Public non-recommendation text' },
     ], client, 20);
-    assert.equal(result.state, REVIEW_SOURCE_STATES.unavailable);
-    assert.deepEqual(result.reviews, []);
-    assert.deepEqual(result.lowRatingReviews, []);
+    assert.equal(result.state, REVIEW_SOURCE_STATES.success);
+    assert.equal(result.reviews.length, 2);
+    assert.equal(result.negativeReviews.length, 1);
+    assert.equal(result.negativeReviews[0].wouldRecommend, false);
+    assert.equal(result.negativeReviews[0].body, 'Public non-recommendation text');
+    assert.equal(normalizeReviewContext([{ wouldRecommend: true, reviewText: 'Only recommendation' }], client).negativeReviews.length, 0);
+    assert.equal(normalizeReviewContext([{ wouldRecommend: 'yes', reviewText: 'Not a boolean' }], client).state, REVIEW_SOURCE_STATES.unavailable);
 });
 
 test('Iteration 5 L1: public review adapter only performs GET and request errors remain errors', async () => {
@@ -101,7 +105,7 @@ test('Iteration 5 L1: public review adapter only performs GET and request errors
         now: () => 25,
     });
     const result = await adapter.fetch(identity('client-a'));
-    assert.equal(result.lowRatingReviews.length, 1);
+    assert.equal(result.negativeReviews.length, 1);
     assert.equal(requests[0].options.method, 'GET');
     assert.equal(requests[0].url, 'https://vgen.co/client-a');
 
@@ -305,10 +309,34 @@ test('Iteration 5 L2: warning, selectable review popover and copy work without a
     session.result = normalizeReviewContext({ reviews: [{ rating: 5, body: 'Five only' }] }, session.identity);
     session.render();
     assert.equal(buttons(session.root).some((button) => /存在/.test(button.textContent)), false);
-    session.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], lowRatingReviews: [] };
+    session.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], negativeReviews: [] };
     session.render();
     assert.match(session.root.textContent + descendants(session.root).map((node) => node.textContent).join(' '), /加载失败/);
-    assert.doesNotMatch(session.root.textContent, /没有低星|均为 5/);
+    assert.doesNotMatch(session.root.textContent, /不推荐|推荐/);
+    session.unmount();
+});
+
+test('Iteration 5 L2: binary non-recommendation renders negative review terminology', () => {
+    const documentObject = new MiniDocument();
+    const panel = documentObject.createElement('section'); documentObject.body.append(panel);
+    const session = new OrderAssistantSession({
+        panel, identity: identity('binary-ui', panel), settings: { copyButtons: true, clientBackground: true },
+        adapter: { fetch: async () => normalizeReviewContext([], identity('binary-ui')) },
+        cache: new ClientBackgroundCache(), clipboard: { writeText: async () => {} },
+    });
+    session.mount();
+    session.result = normalizeReviewContext([
+        { wouldRecommend: true, reviewText: 'Recommended client' },
+        { wouldRecommend: false, reviewText: 'Not recommended' },
+    ], session.identity);
+    session.render();
+    const warning = buttons(session.root).find((button) => button.dataset.action === 'toggle-reviews');
+    assert.match(warning.textContent, /1 条不推荐/);
+    warning.click();
+    const labels = descendants(session.popover).filter((node) => node.tagName === 'STRONG').map((node) => node.textContent);
+    assert.equal(labels.includes('不推荐'), true);
+    const body = descendants(session.popover).find((node) => node.className === 'vgen-nya-order-assistant__review-body');
+    assert.equal(body.textContent, 'Not recommended');
     session.unmount();
 });
 

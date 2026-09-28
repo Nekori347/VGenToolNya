@@ -65,13 +65,28 @@ function pickText(value, names) {
 }
 
 export function normalizePublicReview(value) {
-    const rating = Number(value?.rating ?? value?.score ?? value?.stars);
-    const body = pickText(value, ['body', 'text', 'review', 'comment', 'content', 'message']);
-    if (!Number.isFinite(rating) || rating < 1 || rating > 5 || !body) return null;
-    const review = { rating, body };
+    const body = pickText(value, ['reviewText', 'body', 'text', 'review', 'comment', 'content', 'message']);
+    if (!body) return null;
     const reviewer = pickText(value, ['reviewer', 'reviewerUsername', 'username', 'displayName']);
     const date = pickText(value, ['date', 'createdAt', 'created', 'submittedAt']);
     const context = pickText(value, ['service', 'serviceName', 'context', 'productName']);
+
+    let negative = null;
+    let rating = null;
+    let wouldRecommend = null;
+    const recommend = value?.wouldRecommend ?? value?.recommend ?? value?.would_recommend;
+    if (typeof recommend === 'boolean') {
+        wouldRecommend = recommend;
+        negative = !recommend;
+    } else {
+        rating = Number(value?.rating ?? value?.score ?? value?.stars);
+        if (Number.isFinite(rating) && rating >= 1 && rating <= 5) negative = rating < 5;
+    }
+    if (negative === null) return null;
+
+    const review = { body, negative };
+    if (rating !== null) review.rating = rating;
+    if (wouldRecommend !== null) review.wouldRecommend = wouldRecommend;
     if (reviewer) review.reviewer = reviewer;
     if (date) review.date = date;
     if (context) review.context = context;
@@ -99,7 +114,7 @@ export function normalizeReviewContext(raw, identity, now = Date.now()) {
         state: REVIEW_SOURCE_STATES.unavailable,
         clientId: identity.clientId,
         profileUrl: identity.profileUrl,
-        reviews: [], lowRatingReviews: [], fetchedAt: now,
+        reviews: [], negativeReviews: [], fetchedAt: now,
     };
     const sourceItems = collections.flat();
     const reviews = sourceItems.map(normalizePublicReview).filter(Boolean);
@@ -107,15 +122,15 @@ export function normalizeReviewContext(raw, identity, now = Date.now()) {
         state: REVIEW_SOURCE_STATES.unavailable,
         clientId: identity.clientId,
         profileUrl: identity.profileUrl,
-        reviews: [], lowRatingReviews: [], fetchedAt: now,
+        reviews: [], negativeReviews: [], fetchedAt: now,
     };
-    const lowRatingReviews = reviews.filter((review) => review.rating < 5);
+    const negativeReviews = reviews.filter((review) => review.negative);
     return {
         state: reviews.length ? REVIEW_SOURCE_STATES.success : REVIEW_SOURCE_STATES.empty,
         clientId: identity.clientId,
         profileUrl: identity.profileUrl,
         reviews,
-        lowRatingReviews,
+        negativeReviews,
         fetchedAt: now,
     };
 }

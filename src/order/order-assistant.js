@@ -24,6 +24,13 @@ function control(documentObject, text, action) {
     return button;
 }
 
+function reviewLabel(review) {
+    if (review.wouldRecommend === false) return '不推荐';
+    if (review.wouldRecommend === true) return '推荐';
+    if (Number.isFinite(review.rating)) return `${review.rating}★${review.rating < 5 ? ' · 不推荐' : ''}`;
+    return '不推荐';
+}
+
 export class OrderAssistantSession {
     constructor({ panel, identity, settings, adapter, cache, clipboard, AbortControllerClass = globalThis.AbortController } = {}) {
         this.panel = panel;
@@ -93,11 +100,11 @@ export class OrderAssistantSession {
             tools.append(make(documentObject, 'span', 'vgen-nya-order-assistant__status notranslate', '暂无公开评价'));
             return;
         }
-        const lowCount = this.result.lowRatingReviews.length;
-        const trigger = control(documentObject, lowCount
-            ? `存在 ${lowCount} 条 <5★ 的公开评价`
+        const negativeCount = this.result.negativeReviews.length;
+        const trigger = control(documentObject, negativeCount
+            ? `存在 ${negativeCount} 条不推荐的公开评价`
             : `查看公开评价 (${this.result.reviews.length})`, 'toggle-reviews');
-        if (lowCount) trigger.classList.add('vgen-nya-order-assistant__warning');
+        if (negativeCount) trigger.classList.add('vgen-nya-order-assistant__warning');
         trigger.addEventListener('click', () => {
             if (this.popover) this.popover.hidden = !this.popover.hidden;
         });
@@ -109,17 +116,19 @@ export class OrderAssistantSession {
         const popover = make(documentObject, 'div', 'vgen-nya-order-assistant__popover');
         popover.hidden = true;
         const header = make(documentObject, 'div', 'vgen-nya-order-assistant__popover-head');
-        const title = make(documentObject, 'strong', 'notranslate', this.result.lowRatingReviews.length ? '低于 5★ 的公开评价' : '公开评价');
+        const title = make(documentObject, 'strong', 'notranslate', this.result.negativeReviews.length ? '不推荐的公开评价' : '公开评价');
         title.translate = false;
         const close = control(documentObject, 'Close', 'close-reviews');
         close.addEventListener('click', () => { popover.hidden = true; });
         header.append(title, close);
         popover.append(header);
-        const reviews = this.result.lowRatingReviews.length ? this.result.lowRatingReviews : this.result.reviews;
+        const reviews = this.result.negativeReviews.length ? this.result.negativeReviews : this.result.reviews;
         for (const review of reviews) {
             const article = make(documentObject, 'article', 'vgen-nya-order-assistant__review');
             const meta = make(documentObject, 'div', 'vgen-nya-order-assistant__review-meta');
-            meta.append(make(documentObject, 'strong', '', `${review.rating}★`));
+            const label = make(documentObject, 'strong', 'notranslate', reviewLabel(review));
+            label.translate = false;
+            meta.append(label);
             for (const value of [review.reviewer, review.date, review.context].filter(Boolean)) meta.append(make(documentObject, 'span', '', value));
             const body = make(documentObject, 'p', 'vgen-nya-order-assistant__review-body', review.body);
             body.translate = true;
@@ -162,7 +171,7 @@ export class OrderAssistantSession {
             this.render();
         } catch (error) {
             if (error?.name !== 'AbortError' && this.mounted && operation === this.operation) {
-                this.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], lowRatingReviews: [], error: String(error?.message || error) };
+                this.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], negativeReviews: [], error: String(error?.message || error) };
                 this.render();
             }
         }

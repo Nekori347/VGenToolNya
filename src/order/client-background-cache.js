@@ -35,7 +35,7 @@ export class ClientBackgroundCache {
         const key = this.key(identity);
         if (!key) return {
             state: REVIEW_SOURCE_STATES.unavailable,
-            clientId: '', profileUrl: '', reviews: [], lowRatingReviews: [], fetchedAt: this.now(), fromCache: false,
+            clientId: '', profileUrl: '', reviews: [], negativeReviews: [], fetchedAt: this.now(), fromCache: false,
         };
         const cached = this.peek(identity);
         if (cached) return cached;
@@ -52,7 +52,7 @@ export class ClientBackgroundCache {
                     state: REVIEW_SOURCE_STATES.error,
                     clientId: identity.clientId,
                     profileUrl: identity.profileUrl,
-                    reviews: [], lowRatingReviews: [],
+                    reviews: [], negativeReviews: [],
                     fetchedAt: this.now(), fromCache: false,
                     error: String(error?.message || 'Public review request failed'),
                 };

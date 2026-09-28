@@ -4499,13 +4499,26 @@ ${summary}
     return "";
   }
   function normalizePublicReview(value) {
-    const rating = Number(value?.rating ?? value?.score ?? value?.stars);
-    const body = pickText(value, ["body", "text", "review", "comment", "content", "message"]);
-    if (!Number.isFinite(rating) || rating < 1 || rating > 5 || !body) return null;
-    const review = { rating, body };
+    const body = pickText(value, ["reviewText", "body", "text", "review", "comment", "content", "message"]);
+    if (!body) return null;
     const reviewer = pickText(value, ["reviewer", "reviewerUsername", "username", "displayName"]);
     const date = pickText(value, ["date", "createdAt", "created", "submittedAt"]);
     const context = pickText(value, ["service", "serviceName", "context", "productName"]);
+    let negative = null;
+    let rating = null;
+    let wouldRecommend = null;
+    const recommend = value?.wouldRecommend ?? value?.recommend ?? value?.would_recommend;
+    if (typeof recommend === "boolean") {
+      wouldRecommend = recommend;
+      negative = !recommend;
+    } else {
+      rating = Number(value?.rating ?? value?.score ?? value?.stars);
+      if (Number.isFinite(rating) && rating >= 1 && rating <= 5) negative = rating < 5;
+    }
+    if (negative === null) return null;
+    const review = { body, negative };
+    if (rating !== null) review.rating = rating;
+    if (wouldRecommend !== null) review.wouldRecommend = wouldRecommend;
     if (reviewer) review.reviewer = reviewer;
     if (date) review.date = date;
     if (context) review.context = context;
@@ -4532,7 +4545,7 @@ ${summary}
       clientId: identity.clientId,
       profileUrl: identity.profileUrl,
       reviews: [],
-      lowRatingReviews: [],
+      negativeReviews: [],
       fetchedAt: now
     };
     const sourceItems = collections.flat();
@@ -4542,16 +4555,16 @@ ${summary}
       clientId: identity.clientId,
       profileUrl: identity.profileUrl,
       reviews: [],
-      lowRatingReviews: [],
+      negativeReviews: [],
       fetchedAt: now
     };
-    const lowRatingReviews = reviews.filter((review) => review.rating < 5);
+    const negativeReviews = reviews.filter((review) => review.negative);
     return {
       state: reviews.length ? REVIEW_SOURCE_STATES.success : REVIEW_SOURCE_STATES.empty,
       clientId: identity.clientId,
       profileUrl: identity.profileUrl,
       reviews,
-      lowRatingReviews,
+      negativeReviews,
       fetchedAt: now
     };
   }
@@ -4622,7 +4635,7 @@ ${summary}
         clientId: "",
         profileUrl: "",
         reviews: [],
-        lowRatingReviews: [],
+        negativeReviews: [],
         fetchedAt: this.now(),
         fromCache: false
       };
@@ -4642,7 +4655,7 @@ ${summary}
             clientId: identity.clientId,
             profileUrl: identity.profileUrl,
             reviews: [],
-            lowRatingReviews: [],
+            negativeReviews: [],
             fetchedAt: this.now(),
             fromCache: false,
             error: String(error?.message || "Public review request failed")
@@ -4850,6 +4863,12 @@ ${summary}
     button.dataset.action = action;
     return button;
   }
+  function reviewLabel(review) {
+    if (review.wouldRecommend === false) return "不推荐";
+    if (review.wouldRecommend === true) return "推荐";
+    if (Number.isFinite(review.rating)) return `${review.rating}★${review.rating < 5 ? " · 不推荐" : ""}`;
+    return "不推荐";
+  }
   var OrderAssistantSession = class {
     constructor({ panel, identity, settings, adapter, cache, clipboard, AbortControllerClass = globalThis.AbortController } = {}) {
       this.panel = panel;
@@ -4916,9 +4935,9 @@ ${summary}
         tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "暂无公开评价"));
         return;
       }
-      const lowCount = this.result.lowRatingReviews.length;
-      const trigger = control(documentObject, lowCount ? `存在 ${lowCount} 条 <5★ 的公开评价` : `查看公开评价 (${this.result.reviews.length})`, "toggle-reviews");
-      if (lowCount) trigger.classList.add("vgen-nya-order-assistant__warning");
+      const negativeCount = this.result.negativeReviews.length;
+      const trigger = control(documentObject, negativeCount ? `存在 ${negativeCount} 条不推荐的公开评价` : `查看公开评价 (${this.result.reviews.length})`, "toggle-reviews");
+      if (negativeCount) trigger.classList.add("vgen-nya-order-assistant__warning");
       trigger.addEventListener("click", () => {
         if (this.popover) this.popover.hidden = !this.popover.hidden;
       });
@@ -4929,7 +4948,7 @@ ${summary}
       const popover = make8(documentObject, "div", "vgen-nya-order-assistant__popover");
       popover.hidden = true;
       const header = make8(documentObject, "div", "vgen-nya-order-assistant__popover-head");
-      const title = make8(documentObject, "strong", "notranslate", this.result.lowRatingReviews.length ? "低于 5★ 的公开评价" : "公开评价");
+      const title = make8(documentObject, "strong", "notranslate", this.result.negativeReviews.length ? "不推荐的公开评价" : "公开评价");
       title.translate = false;
       const close = control(documentObject, "Close", "close-reviews");
       close.addEventListener("click", () => {
@@ -4937,11 +4956,13 @@ ${summary}
       });
       header.append(title, close);
       popover.append(header);
-      const reviews = this.result.lowRatingReviews.length ? this.result.lowRatingReviews : this.result.reviews;
+      const reviews = this.result.negativeReviews.length ? this.result.negativeReviews : this.result.reviews;
       for (const review of reviews) {
         const article = make8(documentObject, "article", "vgen-nya-order-assistant__review");
         const meta = make8(documentObject, "div", "vgen-nya-order-assistant__review-meta");
-        meta.append(make8(documentObject, "strong", "", `${review.rating}★`));
+        const label = make8(documentObject, "strong", "notranslate", reviewLabel(review));
+        label.translate = false;
+        meta.append(label);
         for (const value of [review.reviewer, review.date, review.context].filter(Boolean)) meta.append(make8(documentObject, "span", "", value));
         const body = make8(documentObject, "p", "vgen-nya-order-assistant__review-body", review.body);
         body.translate = true;
@@ -4982,7 +5003,7 @@ ${summary}
         this.render();
       } catch (error) {
         if (error?.name !== "AbortError" && this.mounted && operation === this.operation) {
-          this.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], lowRatingReviews: [], error: String(error?.message || error) };
+          this.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], negativeReviews: [], error: String(error?.message || error) };
           this.render();
         }
       }
