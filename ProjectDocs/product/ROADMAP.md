@@ -70,6 +70,7 @@
 - 模型强度：Medium
 
 ## Iteration 5 — Order Assistant（Copy ID / URL / Client Background）
+- Status：**AUTOMATION GATE PASS / LIVE PENDING**（`npm test` 95/95、L1 63/63、L2 73/73、`release:check` 26/26；尚未启动 Chrome）
 - Goal：所有可打开的 Order / Commission Detail Panel 挂 Copy Client ID / Profile URL 与公开低星评价提醒（缓存）
 - Modules：Order Assistant、Client Background / Client Review Context
 - Non-goals：不改订单状态、不接飞书

@@ -102,3 +102,25 @@ test('Iteration 4 L2: preset integrations add no polling, global subtree observe
     const entry = await readFile(path.join(projectRoot, 'src/userscript-entry.js'), 'utf8');
     assert.doesNotMatch(entry, /core\.mountOrderTextPresets\(\)/, 'Private Note runtime must remain gated until autosave safety is verified');
 });
+
+test('Iteration 5 L2: Order Assistant uses one direct-child detector, scoped session observation and GET-only review access', async () => {
+    const files = [
+        'src/order/order-assistant.js',
+        'src/order/order-detail-lifecycle.js',
+        'src/order/client-background-cache.js',
+        'src/order/client-review-adapter.js',
+    ];
+    const sources = await Promise.all(files.map((relativePath) => readFile(path.join(projectRoot, relativePath), 'utf8')));
+    for (const [index, source] of sources.entries()) {
+        assert.doesNotMatch(source, /setInterval\s*\(|requestAnimationFrame\s*\(/, files[index]);
+        assert.doesNotMatch(source, /querySelectorAll\s*\(\s*['"]\*['"]\s*\)/, files[index]);
+        assert.doesNotMatch(source, /observe\([^\n]*documentElement/, files[index]);
+        assert.doesNotMatch(source, /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/, files[index]);
+    }
+    const lifecycle = sources[1];
+    assert.match(lifecycle, /observe\(this\.documentObject\.body, \{ childList: true \}\)/);
+    assert.doesNotMatch(lifecycle, /observe\(this\.documentObject\.body, \{[^}]*subtree:\s*true/);
+    const entry = await readFile(path.join(projectRoot, 'src/userscript-entry.js'), 'utf8');
+    assert.match(entry, /core\.mountOrderAssistant\(\)/);
+    assert.doesNotMatch(entry, /core\.mountOrderTextPresets\(\)/, 'Private Note remains gated');
+});

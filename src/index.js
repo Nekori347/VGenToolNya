@@ -15,7 +15,7 @@ import { ChatDiagnostics } from './chat/diagnostics.js';
 import { ChatAssistantRuntime, ChatService } from './chat/chat-assistant.js';
 import { FrequentClientsRuntime } from './clients/frequent-clients.js';
 import { createChatSettingsNavigation } from './settings/chat-settings.js';
-import { createOrderTextPresetNavigation } from './settings/order-settings.js';
+import { createOrderSettingsNavigation } from './settings/order-settings.js';
 import { TextPresetContextRegistry, TEXT_PRESET_CONTEXTS } from './presets/context-registry.js';
 import { TextPresetStore } from './presets/text-preset-store.js';
 import { TextPresetEngine } from './presets/text-preset-engine.js';
@@ -25,12 +25,16 @@ import { ChatQuickReplyPresetAdapter } from './presets/adapters/chat-quick-reply
 import { PrivateNotePresetAdapter } from './presets/adapters/private-note.js';
 import { FinalDeliveryPresetAdapter } from './presets/adapters/final-delivery.js';
 import { OrderTextPresetRuntime } from './order/order-text-presets.js';
+import { OrderConfigRepository } from './order/order-config.js';
+import { OrderAssistantRuntime } from './order/order-assistant.js';
+import { ClientReviewAdapter } from './order/client-review-adapter.js';
 
 export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow = gm } = {}) {
     const store = new ConfigStore(storageDriver || createGMStorageDriver(gm));
     const modules = new ModuleManager();
     const uploadRepository = new UploadConfigRepository(store);
     const chatRepository = new ChatConfigRepository(store);
+    const orderRepository = new OrderConfigRepository(store);
     const textPresetStore = new TextPresetStore({ store, uploadRepository });
     const textPresetRegistry = new TextPresetContextRegistry();
     textPresetRegistry.register(TEXT_PRESET_CONTEXTS.uploadTitle, new UploadTitlePresetAdapter());
@@ -43,7 +47,7 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
     let diagnostics;
     const networkHooks = new ChatNetworkHooks({ windowObject: pageWindow, readGate, onDiagnosticEvent: (event) => diagnostics?.record(event) });
     diagnostics = new ChatDiagnostics({ networkHooks });
-    const navigation = createOrderTextPresetNavigation(textPresetEngine, createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION, textPresetEngine), textPresetEngine));
+    const navigation = createOrderSettingsNavigation({ engine: textPresetEngine, repository: orderRepository }, createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION, textPresetEngine), textPresetEngine));
     const settingsShell = createSettingsShell({ navigation });
     const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, textPresetEngine, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver });
     const chat = new ChatService({ documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver });
@@ -51,11 +55,14 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
     const frequentClients = new FrequentClientsRuntime({ repository: chatRepository, chat, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver, fetchImpl: pageWindow.fetch?.bind(pageWindow) });
     const orderTextPresets = new OrderTextPresetRuntime({ engine: textPresetEngine, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver });
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
+    const clientReviewAdapter = new ClientReviewAdapter({ fetchImpl: pageWindow.fetch?.bind(pageWindow), DOMParserClass: pageWindow.DOMParser });
+    const orderAssistant = new OrderAssistantRuntime({ repository: orderRepository, clipboard, adapter: clientReviewAdapter, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver, AbortControllerClass: pageWindow.AbortController });
     modules.register('settings', settingsShell);
     modules.register('upload-assistant', uploadAssistant);
     modules.register('chat-assistant', chatAssistant);
     modules.register('frequent-clients', frequentClients);
     modules.register('order-text-presets', orderTextPresets);
+    modules.register('order-assistant', orderAssistant);
 
     return {
         store,
@@ -70,6 +77,9 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
         chatAssistant,
         frequentClients,
         orderTextPresets,
+        orderAssistant,
+        orderRepository,
+        clientReviewAdapter,
         chat,
         diagnostics,
         networkHooks,
@@ -112,6 +122,13 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
         },
         unmountOrderTextPresets() {
             modules.unmount('order-text-presets');
+        },
+        mountOrderAssistant() {
+            modules.mount('order-assistant');
+            modules.activate('order-assistant');
+        },
+        unmountOrderAssistant() {
+            modules.unmount('order-assistant');
         },
         dispose() {
             modules.disposeAll();

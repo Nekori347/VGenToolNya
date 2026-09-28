@@ -117,7 +117,8 @@ test('Iteration 4 L2: Settings keeps three levels while adding Quick Reply and t
 
     core.settingsShell.selectNavigation('orders');
     tabs = buttons(core.settingsShell.element).filter((button) => button.dataset.action === 'tab').map((button) => button.textContent);
-    assert.deepEqual(tabs, ['文本预设']);
+    assert.deepEqual(tabs, ['订单工具', '文本预设']);
+    core.settingsShell.selectTab('text-presets');
     const sectionToggles = buttons(core.settingsShell.element).filter((button) => button.dataset.action === 'section');
     assert.deepEqual(sectionToggles.map((button) => button.children[0]?.textContent), ['Final Delivery', 'Private Note']);
     core.dispose();

@@ -28,6 +28,7 @@ export const CONFIG_KEYS = Object.freeze({
     chatQuickReplyPresets: 'vgen-nya.text-presets.chat-quick-reply.v1',
     privateNotePresets: 'vgen-nya.text-presets.private-note.v1',
     finalDeliveryPresets: 'vgen-nya.text-presets.final-delivery.v1',
+    orderSettings: 'vgen-nya.order-settings.v1',
 });
 
 const isArray = Array.isArray;

@@ -356,7 +356,8 @@
     clientsSettings: "vgen-nya.clients-settings.v1",
     chatQuickReplyPresets: "vgen-nya.text-presets.chat-quick-reply.v1",
     privateNotePresets: "vgen-nya.text-presets.private-note.v1",
-    finalDeliveryPresets: "vgen-nya.text-presets.final-delivery.v1"
+    finalDeliveryPresets: "vgen-nya.text-presets.final-delivery.v1",
+    orderSettings: "vgen-nya.order-settings.v1"
   });
   var isArray = Array.isArray;
   function requireArray(value, label) {
@@ -1570,11 +1571,11 @@ ${summary}
   function reactProps(element2) {
     return ownReactValue(element2, "__reactProps$");
   }
-  function expandableDisclosure(control, surface) {
-    const content = control.closest?.("[aria-hidden]");
+  function expandableDisclosure(control2, surface) {
+    const content = control2.closest?.("[aria-hidden]");
     const root = content?.parentElement;
     if (!root || !surface.contains(root)) return null;
-    let node = control;
+    let node = control2;
     for (let nodeDepth = 0; node && nodeDepth < 8; nodeDepth += 1, node = node.parentElement || node.getRootNode?.()?.host || null) {
       let fiber = ownReactValue(node, "__reactFiber$") || ownReactValue(node, "__reactInternalInstance$");
       for (let depth = 0; fiber && depth < 45; depth += 1, fiber = fiber.return) {
@@ -1676,8 +1677,8 @@ ${summary}
   }
   function findDiscoveryBridge(surface) {
     const controls = surface.querySelectorAll('button, [role="button"], input[type="radio"], input[type="checkbox"]');
-    for (const control of controls) {
-      const bridge = walkAncestorProps(control, (props) => {
+    for (const control2 of controls) {
+      const bridge = walkAncestorProps(control2, (props) => {
         if (props?.formValues && typeof props.formValues === "object" && typeof props.onFormValueChange === "function") {
           return { values: props.formValues, commit: props.onFormValueChange };
         }
@@ -1690,8 +1691,8 @@ ${summary}
   function findDiscoverySchema(surface) {
     const options = /* @__PURE__ */ new Map();
     const controls = surface.querySelectorAll('button, [role="button"], input[type="radio"], input[type="checkbox"]');
-    for (const control of controls) {
-      walkAncestorProps(control, (props) => {
+    for (const control2 of controls) {
+      walkAncestorProps(control2, (props) => {
         const option = props?.option;
         const id = String(option?.optionID || "").trim();
         if (id && Array.isArray(option?.variants) && !options.has(id)) options.set(id, structuredClone(option));
@@ -1702,8 +1703,8 @@ ${summary}
   }
   function findSlateEditor(surface) {
     const controls = deepQueryAll(surface, '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"]');
-    for (const control of controls) {
-      const editor = walkAncestorProps(control, (_props, fiber) => {
+    for (const control2 of controls) {
+      const editor = walkAncestorProps(control2, (_props, fiber) => {
         for (const candidate of fiberCandidates(fiber)) {
           let hook = candidate.memoizedState;
           for (let index = 0; hook && index < 40; index += 1, hook = hook.next) {
@@ -1729,8 +1730,8 @@ ${summary}
   }
   function findTextCommit(surface, kind) {
     const selector = kind === "title" ? 'input:not([type]), input[type="text"]' : '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"], textarea';
-    for (const control of deepQueryAll(surface, selector)) {
-      const commit = walkAncestorProps(control, (props) => {
+    for (const control2 of deepQueryAll(surface, selector)) {
+      const commit = walkAncestorProps(control2, (props) => {
         if (kind === "title" && typeof props?.onChange === "function" && typeof props?.value === "string") return props.onChange;
         if (kind === "description") return props?.onEditCallback || props?.onValueChange || (typeof props?.onChange === "function" ? props.onChange : null);
         return null;
@@ -1833,8 +1834,8 @@ ${summary}
     }
     collapseDiscovery() {
       const disclosures = /* @__PURE__ */ new Map();
-      for (const control of this.surface.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
-        const disclosure = expandableDisclosure(control, this.surface);
+      for (const control2 of this.surface.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
+        const disclosure = expandableDisclosure(control2, this.surface);
         if (disclosure) disclosures.set(disclosure.root, disclosure);
       }
       for (const disclosure of disclosures.values()) disclosure.collapse();
@@ -3861,17 +3862,56 @@ ${summary}
   }
 
   // src/settings/order-settings.js
-  function createOrderTextPresetNavigation(engine, baseNavigation) {
+  function make7(documentObject, tag, attributes = {}, text = "") {
+    const node = documentObject.createElement(tag);
+    for (const [key, value] of Object.entries(attributes)) {
+      if (key === "dataset") Object.assign(node.dataset, value);
+      else if (key in node) node[key] = value;
+      else node.setAttribute(key, value);
+    }
+    node.textContent = text;
+    return node;
+  }
+  function renderOrderTools(repository) {
+    return ({ documentObject, body, use }) => {
+      const render = () => {
+        const settings = repository.read();
+        const copy = make7(documentObject, "label", { className: "vgen-nya-settings__check" });
+        copy.append(make7(documentObject, "input", { type: "checkbox", checked: settings.copyButtons, dataset: { setting: "copyButtons" } }), documentObject.createTextNode(" 启用 Copy ID / Profile URL"));
+        const background = make7(documentObject, "label", { className: "vgen-nya-settings__check" });
+        background.append(make7(documentObject, "input", { type: "checkbox", checked: settings.clientBackground, dataset: { setting: "clientBackground" } }), documentObject.createTextNode(" 启用 Client Background"));
+        body.replaceChildren(copy, background);
+      };
+      const onChange = (event) => {
+        const key = event.target?.dataset?.setting;
+        if (!key) return;
+        repository.write({ ...repository.read(), [key]: event.target.checked });
+      };
+      body.addEventListener("change", onChange);
+      use(() => body.removeEventListener("change", onChange));
+      render();
+    };
+  }
+  function createOrderSettingsNavigation({ engine, repository }, baseNavigation) {
     return baseNavigation.map((item) => item.id !== "orders" ? item : {
       ...item,
-      tabs: [{
-        id: "text-presets",
-        label: "文本预设",
-        sections: [
-          { id: "final-delivery", title: "Final Delivery", description: "只填入，不交付。真实输入区等待安全订单状态验证。", render: renderTextPresetManager(engine, TEXT_PRESET_CONTEXTS.finalDelivery, { contentLabel: "交付文本" }) },
-          { id: "private-note", title: "Private Note", description: "只填入 Note to self，不调用保存。", render: renderTextPresetManager(engine, TEXT_PRESET_CONTEXTS.privateNote, { contentLabel: "Private Note" }) }
-        ]
-      }]
+      tabs: [
+        {
+          id: "order-tools",
+          label: "订单工具",
+          sections: [
+            { id: "client-background", title: "Client Background", description: "公开客户身份、评价上下文与复制工具。", render: renderOrderTools(repository) }
+          ]
+        },
+        {
+          id: "text-presets",
+          label: "文本预设",
+          sections: [
+            { id: "final-delivery", title: "Final Delivery", description: "只填入，不交付。真实输入区等待安全订单状态验证。", render: renderTextPresetManager(engine, TEXT_PRESET_CONTEXTS.finalDelivery, { contentLabel: "交付文本" }) },
+            { id: "private-note", title: "Private Note", description: "只填入 Note to self，不调用保存。", render: renderTextPresetManager(engine, TEXT_PRESET_CONTEXTS.privateNote, { contentLabel: "Private Note" }) }
+          ]
+        }
+      ]
     });
   }
 
@@ -4351,12 +4391,666 @@ ${summary}
     }
   };
 
+  // src/order/order-config.js
+  var DEFAULT_ORDER_SETTINGS = Object.freeze({
+    copyButtons: true,
+    clientBackground: true
+  });
+  function normalizeOrderSettings(value = {}) {
+    const source = isPlainObject(value) ? value : {};
+    return {
+      copyButtons: source.copyButtons !== false,
+      clientBackground: source.clientBackground !== false
+    };
+  }
+  var OrderConfigRepository = class {
+    #listeners = /* @__PURE__ */ new Set();
+    constructor(store) {
+      this.store = store;
+    }
+    read() {
+      return normalizeOrderSettings(this.store.read(CONFIG_KEYS.orderSettings, DEFAULT_ORDER_SETTINGS));
+    }
+    write(value) {
+      const next = normalizeOrderSettings(value);
+      this.store.writeVerified(CONFIG_KEYS.orderSettings, next, isPlainObject);
+      for (const listener of this.#listeners) listener({ domain: "order-settings", value: next });
+      return next;
+    }
+    subscribe(listener) {
+      this.#listeners.add(listener);
+      return () => this.#listeners.delete(listener);
+    }
+  };
+
+  // src/order/client-review-adapter.js
+  var RESERVED_HANDLES = /* @__PURE__ */ new Set([
+    "",
+    "about",
+    "artists",
+    "authorize",
+    "cart",
+    "catalogue",
+    "category",
+    "challenge",
+    "commission",
+    "creator",
+    "export",
+    "for-artists",
+    "login",
+    "messages",
+    "profile",
+    "reviews",
+    "settings",
+    "signup",
+    "support"
+  ]);
+  var REVIEW_SOURCE_STATES = Object.freeze({
+    success: "SUCCESS",
+    empty: "EMPTY",
+    error: "ERROR",
+    unavailable: "UNAVAILABLE"
+  });
+  function compact(value) {
+    return String(value ?? "").replace(/\s+/g, " ").trim();
+  }
+  function normalizePublicHandle(value) {
+    const handle = compact(value).replace(/^@/, "");
+    if (!/^[A-Za-z0-9_-]+$/.test(handle) || RESERVED_HANDLES.has(handle.toLowerCase())) return "";
+    return handle;
+  }
+  function canonicalProfileUrl(handle) {
+    const normalized = normalizePublicHandle(handle);
+    return normalized ? `https://vgen.co/${encodeURIComponent(normalized)}` : "";
+  }
+  function handleFromHref(href, baseUrl = "https://vgen.co/") {
+    try {
+      const url = new URL(href, baseUrl);
+      if (url.origin !== "https://vgen.co") return "";
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts.length !== 1) return "";
+      return normalizePublicHandle(decodeURIComponent(parts[0]));
+    } catch {
+      return "";
+    }
+  }
+  function resolvePublicClientIdentity(panel) {
+    if (!panel?.querySelectorAll) return null;
+    for (const anchor of panel.querySelectorAll("a[href]")) {
+      const href = anchor.href || anchor.getAttribute?.("href") || "";
+      const handle = handleFromHref(href, panel.ownerDocument?.location?.href);
+      if (!handle) continue;
+      const label = compact(anchor.textContent);
+      if (!label.startsWith("@") && !anchor.closest?.('[data-client], [class*="Client"], [class*="client"]')) continue;
+      return {
+        clientId: `@${handle}`,
+        handle,
+        profileUrl: canonicalProfileUrl(handle),
+        mountTarget: anchor.closest?.('[data-client], [class*="Client"], [class*="client"]') || anchor.parentElement || panel
+      };
+    }
+    return null;
+  }
+  function pickText(value, names) {
+    for (const name of names) {
+      const text = compact(value?.[name]);
+      if (text) return text;
+    }
+    return "";
+  }
+  function normalizePublicReview(value) {
+    const rating = Number(value?.rating ?? value?.score ?? value?.stars);
+    const body = pickText(value, ["body", "text", "review", "comment", "content", "message"]);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5 || !body) return null;
+    const review = { rating, body };
+    const reviewer = pickText(value, ["reviewer", "reviewerUsername", "username", "displayName"]);
+    const date = pickText(value, ["date", "createdAt", "created", "submittedAt"]);
+    const context = pickText(value, ["service", "serviceName", "context", "productName"]);
+    if (reviewer) review.reviewer = reviewer;
+    if (date) review.date = date;
+    if (context) review.context = context;
+    return review;
+  }
+  function reviewCollections(root) {
+    const found = [];
+    const seen = /* @__PURE__ */ new Set();
+    const walk = (value, depth = 0) => {
+      if (!value || typeof value !== "object" || depth > 18 || seen.has(value)) return;
+      seen.add(value);
+      for (const [key, child] of Object.entries(value)) {
+        if (/^(?:reviews?|reviewItems|feedback)$/i.test(key) && Array.isArray(child)) found.push(child);
+        else walk(child, depth + 1);
+      }
+    };
+    walk(root);
+    return found;
+  }
+  function normalizeReviewContext(raw, identity, now = Date.now()) {
+    const collections = Array.isArray(raw) ? [raw] : reviewCollections(raw);
+    if (!collections.length) return {
+      state: REVIEW_SOURCE_STATES.unavailable,
+      clientId: identity.clientId,
+      profileUrl: identity.profileUrl,
+      reviews: [],
+      lowRatingReviews: [],
+      fetchedAt: now
+    };
+    const sourceItems = collections.flat();
+    const reviews = sourceItems.map(normalizePublicReview).filter(Boolean);
+    if (sourceItems.length && reviews.length !== sourceItems.length) return {
+      state: REVIEW_SOURCE_STATES.unavailable,
+      clientId: identity.clientId,
+      profileUrl: identity.profileUrl,
+      reviews: [],
+      lowRatingReviews: [],
+      fetchedAt: now
+    };
+    const lowRatingReviews = reviews.filter((review) => review.rating < 5);
+    return {
+      state: reviews.length ? REVIEW_SOURCE_STATES.success : REVIEW_SOURCE_STATES.empty,
+      clientId: identity.clientId,
+      profileUrl: identity.profileUrl,
+      reviews,
+      lowRatingReviews,
+      fetchedAt: now
+    };
+  }
+  function extractReviewPayload(documentObject) {
+    const scripts = documentObject?.querySelectorAll?.('script[type="application/json"], script#__NEXT_DATA__') || [];
+    for (const script of scripts) {
+      try {
+        const value = JSON.parse(script.textContent || "");
+        if (reviewCollections(value).length) return value;
+      } catch {
+      }
+    }
+    return null;
+  }
+  var ClientReviewAdapter = class {
+    constructor({ fetchImpl = globalThis.fetch, DOMParserClass = globalThis.DOMParser, now = () => Date.now() } = {}) {
+      this.fetchImpl = fetchImpl;
+      this.DOMParserClass = DOMParserClass;
+      this.now = now;
+    }
+    resolveClient(panel) {
+      return resolvePublicClientIdentity(panel);
+    }
+    async fetch(identity, { signal } = {}) {
+      if (!identity?.clientId || !identity?.profileUrl) return normalizeReviewContext(null, identity || {}, this.now());
+      if (typeof this.fetchImpl !== "function" || typeof this.DOMParserClass !== "function") {
+        return normalizeReviewContext(null, identity, this.now());
+      }
+      const response = await this.fetchImpl(identity.profileUrl, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: { Accept: "text/html" },
+        signal
+      });
+      if (!response?.ok) throw new Error(`Public profile request failed (${response?.status || "unknown"})`);
+      const documentObject = new this.DOMParserClass().parseFromString(await response.text(), "text/html");
+      return normalizeReviewContext(extractReviewPayload(documentObject), identity, this.now());
+    }
+  };
+
+  // src/order/client-background-cache.js
+  var CLIENT_BACKGROUND_TTL_MS = 6 * 60 * 60 * 1e3;
+  var CLIENT_BACKGROUND_ERROR_TTL_MS = 2 * 60 * 1e3;
+  var CLIENT_BACKGROUND_UNAVAILABLE_TTL_MS = 15 * 60 * 1e3;
+  var ttlFor = (state) => state === REVIEW_SOURCE_STATES.error ? CLIENT_BACKGROUND_ERROR_TTL_MS : state === REVIEW_SOURCE_STATES.unavailable ? CLIENT_BACKGROUND_UNAVAILABLE_TTL_MS : CLIENT_BACKGROUND_TTL_MS;
+  var ClientBackgroundCache = class {
+    constructor({ now = () => Date.now() } = {}) {
+      this.now = now;
+      this.entries = /* @__PURE__ */ new Map();
+      this.pending = /* @__PURE__ */ new Map();
+    }
+    key(identity) {
+      return String(identity?.clientId || identity?.handle || "").trim().toLowerCase();
+    }
+    peek(identity) {
+      const key = this.key(identity);
+      const entry = this.entries.get(key);
+      if (!entry || this.now() - entry.fetchedAt >= ttlFor(entry.state)) {
+        if (entry) this.entries.delete(key);
+        return null;
+      }
+      return { ...entry, fromCache: true };
+    }
+    async load(identity, loader) {
+      const key = this.key(identity);
+      if (!key) return {
+        state: REVIEW_SOURCE_STATES.unavailable,
+        clientId: "",
+        profileUrl: "",
+        reviews: [],
+        lowRatingReviews: [],
+        fetchedAt: this.now(),
+        fromCache: false
+      };
+      const cached = this.peek(identity);
+      if (cached) return cached;
+      if (this.pending.has(key)) return this.pending.get(key);
+      const operation = (async () => {
+        try {
+          const result = await loader();
+          const entry = { ...result, fetchedAt: this.now(), fromCache: false };
+          this.entries.set(key, entry);
+          return { ...entry };
+        } catch (error) {
+          if (error?.name === "AbortError") throw error;
+          const entry = {
+            state: REVIEW_SOURCE_STATES.error,
+            clientId: identity.clientId,
+            profileUrl: identity.profileUrl,
+            reviews: [],
+            lowRatingReviews: [],
+            fetchedAt: this.now(),
+            fromCache: false,
+            error: String(error?.message || "Public review request failed")
+          };
+          this.entries.set(key, entry);
+          return { ...entry };
+        } finally {
+          this.pending.delete(key);
+        }
+      })();
+      this.pending.set(key, operation);
+      return operation;
+    }
+    clear() {
+      this.entries.clear();
+      this.pending.clear();
+    }
+  };
+
+  // src/order/order-detail-lifecycle.js
+  var COMMISSION_ID = /\bCOMM#\s*[A-Z0-9]{8,16}\b/i;
+  function defaultOrderPanelResolver(root) {
+    if (!root?.querySelectorAll) return null;
+    if (!COMMISSION_ID.test(String(root.textContent || ""))) return null;
+    return resolvePublicClientIdentity(root) ? root : null;
+  }
+  var OrderDetailLifecycle = class {
+    constructor({ documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, panelResolver = defaultOrderPanelResolver, identityResolver = resolvePublicClientIdentity } = {}) {
+      this.documentObject = documentObject;
+      this.MutationObserverClass = MutationObserverClass;
+      this.panelResolver = panelResolver;
+      this.identityResolver = identityResolver;
+      this.listeners = /* @__PURE__ */ new Set();
+      this.observer = null;
+      this.panelObserver = null;
+      this.panel = null;
+      this.identity = null;
+      this.probes = /* @__PURE__ */ new Map();
+      this.mounted = false;
+    }
+    subscribe(listener) {
+      this.listeners.add(listener);
+      if (this.panel && this.identity) listener({ type: "open", panel: this.panel, identity: this.identity });
+      return () => this.listeners.delete(listener);
+    }
+    mount() {
+      if (this.mounted || !this.documentObject?.body) return false;
+      this.mounted = true;
+      for (const child of this.documentObject.body.children || []) if (this.#consider(child)) break;
+      if (this.MutationObserverClass) {
+        this.observer = new this.MutationObserverClass((records) => {
+          for (const record of records) {
+            for (const node of record.removedNodes || []) {
+              this.#releaseProbe(node);
+              if (node === this.panel || node.contains?.(this.panel) || this.panel?.isConnected === false) this.#close();
+            }
+            for (const node of record.addedNodes || []) if (!this.#consider(node)) this.#probe(node);
+          }
+        });
+        this.observer.observe(this.documentObject.body, { childList: true });
+      }
+      return true;
+    }
+    #consider(root) {
+      const panel = this.panelResolver(root);
+      if (!panel) return false;
+      const identity = this.identityResolver(panel);
+      if (!identity) return false;
+      if (panel !== this.panel) {
+        this.#close();
+        this.panel = panel;
+        this.identity = identity;
+        this.#observePanel();
+        this.#releaseProbes();
+        this.#emit("open");
+      } else if (identity.clientId !== this.identity?.clientId || identity.mountTarget !== this.identity?.mountTarget) {
+        this.identity = identity;
+        this.#emit("change");
+      }
+      return true;
+    }
+    #observePanel() {
+      if (!this.MutationObserverClass || !this.panel) return;
+      this.panelObserver = new this.MutationObserverClass(() => {
+        if (!this.panel || this.panel.isConnected === false) return this.#close();
+        const identity = this.identityResolver(this.panel);
+        if (identity && (identity.clientId !== this.identity?.clientId || identity.mountTarget !== this.identity?.mountTarget)) {
+          this.identity = identity;
+          this.#emit("change");
+        }
+      });
+      this.panelObserver.observe(this.panel, { childList: true, subtree: true });
+    }
+    #emit(type) {
+      const event = { type, panel: this.panel, identity: this.identity };
+      for (const listener of this.listeners) listener(event);
+    }
+    #probe(root) {
+      if (!root?.querySelector || !this.MutationObserverClass || this.probes.has(root) || this.probes.size >= 12) return false;
+      const observer = new this.MutationObserverClass(() => {
+        if (root.isConnected === false) this.#releaseProbe(root);
+        else if (this.#consider(root)) this.#releaseProbes();
+      });
+      observer.observe(root, { childList: true, subtree: true });
+      const timer = globalThis.setTimeout(() => this.#releaseProbe(root), 8e3);
+      this.probes.set(root, { observer, timer });
+      return true;
+    }
+    #releaseProbe(root) {
+      for (const [candidate, entry] of this.probes) {
+        if (candidate !== root && !root?.contains?.(candidate)) continue;
+        entry.observer.disconnect();
+        globalThis.clearTimeout(entry.timer);
+        this.probes.delete(candidate);
+      }
+    }
+    #releaseProbes() {
+      for (const [root, entry] of this.probes) {
+        entry.observer.disconnect();
+        globalThis.clearTimeout(entry.timer);
+        this.probes.delete(root);
+      }
+    }
+    #close() {
+      if (!this.panel) return false;
+      const previous = { panel: this.panel, identity: this.identity };
+      this.panelObserver?.disconnect();
+      this.panelObserver = null;
+      this.panel = null;
+      this.identity = null;
+      for (const listener of this.listeners) listener({ type: "close", ...previous });
+      return true;
+    }
+    activate() {
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.observer?.disconnect();
+      this.observer = null;
+      this.#releaseProbes();
+      this.#close();
+      this.mounted = false;
+      return true;
+    }
+    dispose() {
+      this.unmount();
+      this.listeners.clear();
+    }
+  };
+
+  // src/order/order-assistant.js
+  var ORDER_ASSISTANT_CSS = `
+.vgen-nya-order-assistant{margin:8px 0;padding:8px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:9px;background:color-mix(in srgb,currentColor 5%,transparent);color:inherit;font:12px/1.45 system-ui,sans-serif;max-width:100%;position:relative}
+.vgen-nya-order-assistant__tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-order-assistant button{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 8px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}.vgen-nya-order-assistant button:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
+.vgen-nya-order-assistant__status{opacity:.72}.vgen-nya-order-assistant__warning{border-color:#d97706!important;background:#f59e0b22!important;color:inherit;font-weight:650}.vgen-nya-order-assistant__error{color:#b42318}
+.vgen-nya-order-assistant__popover{margin-top:8px;padding:9px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:8px;background:Canvas;color:CanvasText;box-shadow:0 8px 24px #0003;max-height:320px;overflow:auto}.vgen-nya-order-assistant__popover[hidden]{display:none}.vgen-nya-order-assistant__popover-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}.vgen-nya-order-assistant__review{padding:8px 0;border-top:1px solid color-mix(in srgb,currentColor 16%,transparent)}.vgen-nya-order-assistant__review:first-of-type{border-top:0}.vgen-nya-order-assistant__review-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;opacity:.75}.vgen-nya-order-assistant__review-body{margin:5px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;cursor:text}
+`;
+  function make8(documentObject, tagName, className = "", text = "") {
+    const node = documentObject.createElement(tagName);
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+  function control(documentObject, text, action) {
+    const button = make8(documentObject, "button", "notranslate", text);
+    button.type = "button";
+    button.translate = false;
+    button.dataset.action = action;
+    return button;
+  }
+  var OrderAssistantSession = class {
+    constructor({ panel, identity, settings, adapter, cache, clipboard, AbortControllerClass = globalThis.AbortController } = {}) {
+      this.panel = panel;
+      this.identity = identity;
+      this.settings = settings;
+      this.adapter = adapter;
+      this.cache = cache;
+      this.clipboard = clipboard;
+      this.AbortControllerClass = AbortControllerClass;
+      this.root = null;
+      this.popover = null;
+      this.result = null;
+      this.abortController = null;
+      this.operation = 0;
+      this.feedbackTimers = /* @__PURE__ */ new Set();
+      this.mounted = false;
+    }
+    mount() {
+      if (this.mounted) return false;
+      this.mounted = true;
+      const documentObject = this.panel.ownerDocument;
+      this.root = make8(documentObject, "section", "vgen-nya-order-assistant");
+      this.root.dataset.vgenNyaUi = "order-assistant";
+      this.root.setAttribute("aria-label", "Client Background");
+      (this.identity.mountTarget || this.panel).append(this.root);
+      this.render();
+      if (this.settings.clientBackground) void this.loadBackground();
+      return true;
+    }
+    render() {
+      if (!this.root) return;
+      const documentObject = this.root.ownerDocument;
+      this.root.replaceChildren();
+      const tools = make8(documentObject, "div", "vgen-nya-order-assistant__tools");
+      if (this.settings.copyButtons) {
+        const copyId = control(documentObject, "Copy ID", "copy-id");
+        const copyUrl = control(documentObject, "Copy Profile URL", "copy-url");
+        copyId.addEventListener("click", () => void this.copy(this.identity.clientId, copyId));
+        copyUrl.addEventListener("click", () => void this.copy(this.identity.profileUrl, copyUrl));
+        tools.append(copyId, copyUrl);
+      }
+      if (this.settings.clientBackground) this.#renderBackgroundControl(tools);
+      this.root.append(tools);
+      if (this.result && [REVIEW_SOURCE_STATES.success, REVIEW_SOURCE_STATES.empty].includes(this.result.state)) {
+        this.popover = this.#createPopover();
+        this.root.append(this.popover);
+      } else this.popover = null;
+    }
+    #renderBackgroundControl(tools) {
+      const documentObject = tools.ownerDocument;
+      if (!this.result) {
+        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "Client Background: loading…"));
+        return;
+      }
+      if (this.result.state === REVIEW_SOURCE_STATES.error) {
+        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status vgen-nya-order-assistant__error notranslate", "公开评价加载失败"));
+        return;
+      }
+      if (this.result.state === REVIEW_SOURCE_STATES.unavailable) {
+        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "公开评价不可用"));
+        return;
+      }
+      if (this.result.state === REVIEW_SOURCE_STATES.empty) {
+        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "暂无公开评价"));
+        return;
+      }
+      const lowCount = this.result.lowRatingReviews.length;
+      const trigger = control(documentObject, lowCount ? `存在 ${lowCount} 条 <5★ 的公开评价` : `查看公开评价 (${this.result.reviews.length})`, "toggle-reviews");
+      if (lowCount) trigger.classList.add("vgen-nya-order-assistant__warning");
+      trigger.addEventListener("click", () => {
+        if (this.popover) this.popover.hidden = !this.popover.hidden;
+      });
+      tools.append(trigger);
+    }
+    #createPopover() {
+      const documentObject = this.root.ownerDocument;
+      const popover = make8(documentObject, "div", "vgen-nya-order-assistant__popover");
+      popover.hidden = true;
+      const header = make8(documentObject, "div", "vgen-nya-order-assistant__popover-head");
+      const title = make8(documentObject, "strong", "notranslate", this.result.lowRatingReviews.length ? "低于 5★ 的公开评价" : "公开评价");
+      title.translate = false;
+      const close = control(documentObject, "Close", "close-reviews");
+      close.addEventListener("click", () => {
+        popover.hidden = true;
+      });
+      header.append(title, close);
+      popover.append(header);
+      const reviews = this.result.lowRatingReviews.length ? this.result.lowRatingReviews : this.result.reviews;
+      for (const review of reviews) {
+        const article = make8(documentObject, "article", "vgen-nya-order-assistant__review");
+        const meta = make8(documentObject, "div", "vgen-nya-order-assistant__review-meta");
+        meta.append(make8(documentObject, "strong", "", `${review.rating}★`));
+        for (const value of [review.reviewer, review.date, review.context].filter(Boolean)) meta.append(make8(documentObject, "span", "", value));
+        const body = make8(documentObject, "p", "vgen-nya-order-assistant__review-body", review.body);
+        body.translate = true;
+        const copy = control(documentObject, "Copy", "copy-review");
+        copy.addEventListener("click", () => void this.copy(review.body, copy));
+        article.append(meta, body, copy);
+        popover.append(article);
+      }
+      return popover;
+    }
+    async copy(value, button) {
+      if (!value) return false;
+      const original = button.textContent;
+      try {
+        await this.clipboard.writeText(value);
+        button.textContent = "Copied";
+        return true;
+      } catch {
+        button.textContent = "Copy failed";
+        return false;
+      } finally {
+        const expected = button.textContent;
+        const timer = globalThis.setTimeout(() => {
+          this.feedbackTimers.delete(timer);
+          if (button.isConnected !== false && button.textContent === expected) button.textContent = original;
+        }, 1200);
+        this.feedbackTimers.add(timer);
+      }
+    }
+    async loadBackground() {
+      const operation = ++this.operation;
+      this.abortController?.abort("superseded");
+      this.abortController = this.AbortControllerClass ? new this.AbortControllerClass() : null;
+      try {
+        const result = await this.cache.load(this.identity, () => this.adapter.fetch(this.identity, { signal: this.abortController?.signal }));
+        if (!this.mounted || operation !== this.operation) return;
+        this.result = result;
+        this.render();
+      } catch (error) {
+        if (error?.name !== "AbortError" && this.mounted && operation === this.operation) {
+          this.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], lowRatingReviews: [], error: String(error?.message || error) };
+          this.render();
+        }
+      }
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.mounted = false;
+      this.operation += 1;
+      this.abortController?.abort("order-session-closed");
+      this.abortController = null;
+      for (const timer of this.feedbackTimers) globalThis.clearTimeout(timer);
+      this.feedbackTimers.clear();
+      this.root?.remove();
+      this.root = null;
+      this.popover = null;
+      this.result = null;
+      return true;
+    }
+  };
+  var OrderAssistantRuntime = class {
+    constructor({ repository, clipboard, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapter, cache, detailLifecycle, AbortControllerClass = globalThis.AbortController } = {}) {
+      this.repository = repository;
+      this.clipboard = clipboard;
+      this.documentObject = documentObject;
+      this.adapter = adapter || new ClientReviewAdapter({ fetchImpl: globalThis.fetch?.bind(globalThis), DOMParserClass: documentObject?.defaultView?.DOMParser || globalThis.DOMParser });
+      this.cache = cache || new ClientBackgroundCache();
+      this.detailLifecycle = detailLifecycle || new OrderDetailLifecycle({ documentObject, MutationObserverClass, identityResolver: (panel) => this.adapter.resolveClient(panel) });
+      this.AbortControllerClass = AbortControllerClass;
+      this.current = null;
+      this.session = null;
+      this.unsubscribeDetail = null;
+      this.unsubscribeSettings = null;
+      this.style = null;
+      this.mounted = false;
+    }
+    mount() {
+      if (this.mounted || !this.documentObject?.body) return false;
+      this.mounted = true;
+      this.style = this.documentObject.createElement("style");
+      this.style.dataset.vgenNyaUi = "order-assistant-style";
+      this.style.textContent = ORDER_ASSISTANT_CSS;
+      (this.documentObject.head || this.documentObject.body).append(this.style);
+      this.unsubscribeDetail = this.detailLifecycle.subscribe((event) => this.#onDetail(event));
+      this.unsubscribeSettings = this.repository.subscribe(() => this.#sync());
+      this.detailLifecycle.mount();
+      return true;
+    }
+    #onDetail(event) {
+      if (event.type === "close") {
+        this.current = null;
+        this.#releaseSession();
+        return;
+      }
+      this.current = { panel: event.panel, identity: event.identity };
+      this.#sync();
+    }
+    #sync() {
+      this.#releaseSession();
+      if (!this.current) return;
+      const settings = this.repository.read();
+      if (!settings.copyButtons && !settings.clientBackground) return;
+      this.session = new OrderAssistantSession({
+        ...this.current,
+        settings,
+        adapter: this.adapter,
+        cache: this.cache,
+        clipboard: this.clipboard,
+        AbortControllerClass: this.AbortControllerClass
+      });
+      this.session.mount();
+    }
+    #releaseSession() {
+      this.session?.unmount();
+      this.session = null;
+    }
+    activate() {
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.unsubscribeDetail?.();
+      this.unsubscribeDetail = null;
+      this.unsubscribeSettings?.();
+      this.unsubscribeSettings = null;
+      this.detailLifecycle.unmount();
+      this.#releaseSession();
+      this.current = null;
+      this.style?.remove();
+      this.style = null;
+      this.mounted = false;
+      return true;
+    }
+    dispose() {
+      this.unmount();
+      this.detailLifecycle.dispose();
+      this.cache.clear();
+    }
+  };
+
   // src/index.js
   function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow: pageWindow2 = gm } = {}) {
     const store = new ConfigStore(storageDriver || createGMStorageDriver(gm));
     const modules = new ModuleManager();
     const uploadRepository = new UploadConfigRepository(store);
     const chatRepository = new ChatConfigRepository(store);
+    const orderRepository = new OrderConfigRepository(store);
     const textPresetStore = new TextPresetStore({ store, uploadRepository });
     const textPresetRegistry = new TextPresetContextRegistry();
     textPresetRegistry.register(TEXT_PRESET_CONTEXTS.uploadTitle, new UploadTitlePresetAdapter());
@@ -4369,7 +5063,7 @@ ${summary}
     let diagnostics;
     const networkHooks = new ChatNetworkHooks({ windowObject: pageWindow2, readGate, onDiagnosticEvent: (event) => diagnostics?.record(event) });
     diagnostics = new ChatDiagnostics({ networkHooks });
-    const navigation = createOrderTextPresetNavigation(textPresetEngine, createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION, textPresetEngine), textPresetEngine));
+    const navigation = createOrderSettingsNavigation({ engine: textPresetEngine, repository: orderRepository }, createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION, textPresetEngine), textPresetEngine));
     const settingsShell = createSettingsShell({ navigation });
     const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, textPresetEngine, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
     const chat = new ChatService({ documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
@@ -4377,11 +5071,14 @@ ${summary}
     const frequentClients = new FrequentClientsRuntime({ repository: chatRepository, chat, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver, fetchImpl: pageWindow2.fetch?.bind(pageWindow2) });
     const orderTextPresets = new OrderTextPresetRuntime({ engine: textPresetEngine, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
+    const clientReviewAdapter = new ClientReviewAdapter({ fetchImpl: pageWindow2.fetch?.bind(pageWindow2), DOMParserClass: pageWindow2.DOMParser });
+    const orderAssistant = new OrderAssistantRuntime({ repository: orderRepository, clipboard, adapter: clientReviewAdapter, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver, AbortControllerClass: pageWindow2.AbortController });
     modules.register("settings", settingsShell);
     modules.register("upload-assistant", uploadAssistant);
     modules.register("chat-assistant", chatAssistant);
     modules.register("frequent-clients", frequentClients);
     modules.register("order-text-presets", orderTextPresets);
+    modules.register("order-assistant", orderAssistant);
     return {
       store,
       modules,
@@ -4395,6 +5092,9 @@ ${summary}
       chatAssistant,
       frequentClients,
       orderTextPresets,
+      orderAssistant,
+      orderRepository,
+      clientReviewAdapter,
       chat,
       diagnostics,
       networkHooks,
@@ -4437,6 +5137,13 @@ ${summary}
       },
       unmountOrderTextPresets() {
         modules.unmount("order-text-presets");
+      },
+      mountOrderAssistant() {
+        modules.mount("order-assistant");
+        modules.activate("order-assistant");
+      },
+      unmountOrderAssistant() {
+        modules.unmount("order-assistant");
       },
       dispose() {
         modules.disposeAll();
@@ -4516,6 +5223,7 @@ ${summary}
     core.mountUploadAssistant();
     core.mountChatAssistant();
     core.mountFrequentClients();
+    core.mountOrderAssistant();
   }
   start();
 })();

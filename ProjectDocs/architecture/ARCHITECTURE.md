@@ -60,6 +60,10 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 
 - Client Background / Client Review Context 随任何可打开的 Order / Commission Detail Panel mount/unmount，不按 pending 或其他订单状态分叉挂载。
 - Iteration 5 的数据边界保持为公开 client identity/profile、公开评价与合理缓存；架构命名不授权额外抓取范围。
+- Order Detail detector 只观察 body 直属 child；异步 portal 使用有数量与时限的局部 probe，确认 panel 后只保留当前 panel scoped observer。client identity 或 mount target 改变时替换单一 session。
+- public identity 使用 `@handle`，profile URL 由 verified handle 构造 canonical VGen URL；内部 UUID 不冒充 Copy Client ID。
+- Review adapter 只允许 GET，并区分 `SUCCESS / EMPTY / ERROR / UNAVAILABLE`。Cache 按稳定 public identity 去重并对错误使用短 TTL；失败不得显示为无低星评价。
+- Review body 保持普通可选 DOM 文本并允许翻译；工具 controls 单独排除翻译，不在正文根使用全局 `notranslate`。
 - Live 调查仅允许只读打开详情。不得 Accept、Decline、改状态、发消息、保存 Private Note 或执行 Delivery。
 
 ## Text Preset Engine
