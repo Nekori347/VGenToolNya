@@ -57,7 +57,7 @@
 - 模型强度：High（回归敏感）
 
 ## Iteration 4 — Text Preset Engine + Delivery/Note/Quick Reply
-- Status：**IN PROGRESS / AUTOMATION GATE**
+- Status：**LIVE GATE COMPLETE / MERGE REVIEW READY**
 - Goal：统一 Text Preset Engine，接入 Final Delivery、Private Note、Chat Quick Reply
 - Modules：Preset Engine、Upload（Title/Description 复用）、Chat、Order
 - Non-goals：不自动提交/发送/交付
@@ -66,6 +66,7 @@
 - L1：Private Note / Chat Quick Reply；L2：Title/Description 回归
 - Browser 验证：Private Note 输入区、聊天 composer
 - STOP：Final Delivery 需改变订单状态才能验证 → 记录 DELIVERY-LIVE-01
+- Live：`PRESET-LIVE-01 = PASS_CORE`、`TEXT-PRESET-UI-01 = PASS`；Private Note 为 `BLOCKED_AUTOSAVE_SAFETY`，Final Delivery 为 `BLOCKED_NEEDS_SAFE_ORDER_STATE`，两者均不得以真实客户写入换取验证
 - 模型强度：Medium
 
 ## Iteration 5 — Order Assistant（Copy ID / URL / Review Warning）

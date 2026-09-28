@@ -433,9 +433,11 @@ async function reloadChatLivePage() {
 async function openChatLiveOverlay() {
     const page = await chatLivePage();
     const clicked = await evaluate(page, `(() => {
-        const icon = [...document.querySelectorAll('svg.chatIcon, [class*="chatIcon"]')]
-            .find((node) => node.closest('button, [role="button"]'));
-        const trigger = icon?.closest('button, [role="button"]');
+        const trigger = [...document.querySelectorAll('svg.chatIcon, [class*="chatIcon"]')]
+            .map((node) => node.closest('button, [role="button"]')).find((node) => {
+                const rect = node?.getBoundingClientRect(); const style = node && getComputedStyle(node);
+                return rect?.width > 0 && rect?.height > 0 && style?.visibility !== 'hidden' && style?.display !== 'none';
+            });
         if (!trigger) return false;
         trigger.click();
         return true;
@@ -970,6 +972,335 @@ async function seedUploadLivePresetsThroughSettings() {
             selectOptions: [...assistant.querySelectorAll('select[data-kind]')].map((select) => ({ kind: select.dataset.kind, count: select.options.length })),
             quickTags: [...assistant.querySelectorAll('button[data-action="tag"]')].map((button) => button.dataset.tag),
         };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function seedTextPresetLiveThroughSettings() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(async () => {
+        const pause = (ms = 120) => new Promise((resolve) => setTimeout(resolve, ms));
+        const overlay = document.querySelector('#vgen-nya-settings-overlay');
+        if (!overlay) return { ok: false, error: 'settings overlay is not open' };
+        const seeded = [];
+        const openSection = async (navigation, tab, section) => {
+            overlay.querySelector('button[data-action="navigation"][data-id="' + navigation + '"]')?.click();
+            await pause();
+            overlay.querySelector('button[data-action="tab"][data-id="' + tab + '"]')?.click();
+            await pause();
+            const key = navigation + ':' + tab + ':' + section;
+            let toggle = overlay.querySelector('button[data-action="section"][data-id="' + key + '"]');
+            if (!toggle) throw new Error('Missing settings section ' + key);
+            if (toggle.getAttribute('aria-expanded') !== 'true') { toggle.click(); await pause(); }
+            toggle = overlay.querySelector('button[data-action="section"][data-id="' + key + '"]');
+            return toggle.closest('section')?.querySelector('.vgen-nya-settings__section-body');
+        };
+        const upsert = async (navigation, tab, section, name, payload) => {
+            const body = await openSection(navigation, tab, section);
+            if (!body) throw new Error('Missing settings body ' + navigation + ':' + tab + ':' + section);
+            const row = [...body.querySelectorAll('.vgen-nya-settings__preset-editor')]
+                .find((candidate) => candidate.querySelector('[data-role="name"]')?.value === name);
+            if (row) {
+                row.querySelector('[data-role="content"]').value = payload;
+                row.querySelector('button[data-action="save"]').click();
+            } else {
+                const newName = body.querySelector('[data-role="new-name"]');
+                const newContent = body.querySelector('[data-role="new-content"]');
+                const add = body.querySelector('button[data-action="add"]');
+                if (!newName || !newContent || !add) throw new Error('Text preset editor unavailable in ' + navigation + ':' + tab + ':' + section
+                    + ' (' + body.innerHTML.slice(0, 500) + ')');
+                newName.value = name;
+                newContent.value = payload;
+                add.click();
+            }
+            await pause();
+            seeded.push(navigation + ':' + tab + ':' + section);
+        };
+        const title = 'VGenToolNya PRESET LIVE TEST - DO NOT SUBMIT';
+        const slate = '[{"type":"paragraph","children":[{"text":"VGenToolNya preset live validation. Do not submit."}]}]';
+        const reply = 'VGenToolNya quick reply live test. DO NOT SEND.';
+        await upsert('upload', 'text', 'title', 'PRESET LIVE Title', title);
+        await upsert('upload', 'text', 'description', 'PRESET LIVE Description', slate);
+        await upsert('chat', 'quick-reply', 'quick-reply', 'PRESET LIVE Reply', reply);
+        await upsert('orders', 'text-presets', 'private-note', 'PRESET LIVE Private Note', 'VGenToolNya private note test. DO NOT SAVE.');
+        await upsert('orders', 'text-presets', 'final-delivery', 'PRESET LIVE Delivery', 'VGenToolNya delivery test. DO NOT DELIVER.');
+
+        const combinationBody = await openSection('upload', 'combination', 'combination');
+        const combination = [{ id: 'preset-live-combination', name: 'PRESET LIVE Combination', title, description: slate,
+            discoverySchema: [], discoveryValues: {}, tags: [] }];
+        const textarea = combinationBody?.querySelector('textarea[data-role="json"]');
+        const save = combinationBody?.querySelector('button[data-action="save-json"]');
+        if (!textarea || !save) throw new Error('Missing Combination JSON editor');
+        textarea.value = JSON.stringify(combination, null, 2); save.click(); await pause();
+        seeded.push('upload:combination:combination');
+        [...overlay.querySelectorAll('button')].find((node) => node.textContent.trim() === '关闭')?.click();
+        await pause();
+        return { ok: true, seeded, settingsClosed: !document.querySelector('#vgen-nya-settings-overlay') };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function exerciseTextPresetUploadLive() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(async () => {
+        const pause = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
+        const modal = document.querySelector('.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]');
+        const root = modal?.querySelector('[data-vgen-nya-ui="upload-assistant"]');
+        if (!modal || !root) throw new Error('Upload modal/assistant is unavailable');
+        const titleInput = modal.querySelector('input[placeholder="New Showcase"]');
+        const findShadowEditor = (node) => {
+            if (!node) return null;
+            if (node.matches?.('[contenteditable="true"]')) return node;
+            for (const child of node.querySelectorAll?.('*') || []) {
+                const found = child.shadowRoot && findShadowEditor(child.shadowRoot);
+                if (found) return found;
+            }
+            return null;
+        };
+        const choose = async (kind, label) => {
+            const select = root.querySelector('select[data-kind="' + kind + '"]');
+            const option = [...select.options].find((item) => item.textContent === label);
+            if (!option) throw new Error('Missing ' + label);
+            select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true })); await pause(650);
+        };
+        await choose('title', 'PRESET LIVE Title');
+        const titleApplied = titleInput?.value;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(titleInput, 'VGenToolNya PRESET MANUAL EDIT - DO NOT SUBMIT');
+        titleInput.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'x' }));
+        titleInput.dispatchEvent(new Event('change', { bubbles: true })); await pause(500);
+        const titleManual = titleInput.value;
+        await choose('description', 'PRESET LIVE Description');
+        const descriptionEditor = findShadowEditor(modal);
+        const descriptionText = descriptionEditor?.innerText || descriptionEditor?.textContent || '';
+        await choose('combination', 'PRESET LIVE Combination');
+        const combination = { title: titleInput.value, descriptionText: (findShadowEditor(modal)?.innerText || '').trim() };
+        return {
+            assistantCount: modal.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            titleApplied, titleManual, descriptionText: descriptionText.trim(), combination,
+            status: root.querySelector('[data-role="status"]')?.textContent || '',
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function exerciseTextPresetChatLive() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(async () => {
+        const pause = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
+        const composerSelector = 'textarea.str-chat__textarea__textarea, textarea.str-chat__message-textarea, .str-chat__message-textarea textarea, textarea[data-testid="message-input"], [class*="MessageInput"] textarea';
+        const root = document.querySelector('[data-vgen-nya-ui="quick-replies"]');
+        const composer = root?.parentElement?.querySelector(composerSelector) || document.querySelector(composerSelector);
+        const findButton = () => [...(root?.querySelectorAll('button[data-preset-id]') || [])].find((node) => node.textContent === 'PRESET LIVE Reply');
+        if (!composer || !root || !findButton()) throw new Error('Quick Reply UI/composer is unavailable');
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        const setNative = (value) => { setter.call(composer, value); composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value })); };
+        setNative(''); await pause();
+        const messagesBefore = document.querySelectorAll('.str-chat__message, .str-chat__message-simple').length;
+        findButton().click(); await pause(650);
+        const emptyFill = { value: composer.value, messagesBefore,
+            messagesAfter: document.querySelectorAll('.str-chat__message, .str-chat__message-simple').length,
+            roots: document.querySelectorAll('[data-vgen-nya-ui="quick-replies"]').length };
+        setNative('Manual edit retained - DO NOT SEND'); await pause(500);
+        const manualEdit = composer.value;
+        const originalConfirm = window.confirm; window.confirm = () => false;
+        try { findButton().click(); await pause(500); } finally { window.confirm = originalConfirm; }
+        const nonEmptyProtection = composer.value;
+        const react = (() => { let node = composer; for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
+            const key = Object.getOwnPropertyNames(node).find((name) => name.startsWith('__reactProps$'));
+            if (key) return { onChange: typeof node[key]?.onChange, onInput: typeof node[key]?.onInput, depth };
+        } return null; })();
+        return { emptyFill, manualEdit, nonEmptyProtection,
+            composer: { tag: composer.tagName, className: String(composer.className || ''), contenteditable: composer.getAttribute('contenteditable'), parentClass: String(composer.parentElement?.className || ''), react },
+            selectedAfterManualEdit: root.querySelector('[aria-pressed="true"]')?.textContent || null };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function exerciseTextPresetChatLifecycle() {
+    const page = await chatLivePage();
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        const before = await evaluate(page, `({ channels: document.querySelectorAll('.str-chat__channel').length,
+            roots: document.querySelectorAll('[data-vgen-nya-ui="quick-replies"]').length })`);
+        await evaluate(page, `(() => { const composer = document.querySelector('.str-chat__channel textarea.str-chat__textarea__textarea, .str-chat__channel textarea.str-chat__message-textarea');
+            if (!composer) return false; const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+            setter?.call(composer, ''); composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward', data: null })); return true; })()`);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const firstClose = await evaluate(page, `(() => { const node = document.querySelector('.str-chat__channel button.closeBtn'); const rect = node?.getBoundingClientRect();
+            return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null; })()`);
+        if (!firstClose) throw new Error('Native Chat close button was not found before switch');
+        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: firstClose.x, y: firstClose.y, button: 'left', clickCount: 1 });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: firstClose.x, y: firstClose.y, button: 'left', clickCount: 1 });
+        await waitForExpression(page, `document.querySelectorAll('.str-chat__channel').length === 0`, 5_000);
+        const trigger = await evaluate(page, `(() => { const node = [...document.querySelectorAll('svg.chatIcon, [class*="chatIcon"]')]
+            .map((icon) => icon.closest('button, [role="button"]')).find((button) => { const rect = button?.getBoundingClientRect(); return rect?.width > 0 && rect?.height > 0; });
+            const rect = node?.getBoundingClientRect(); return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null; })()`);
+        if (!trigger) throw new Error('Native Messages trigger was not found during switch');
+        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: trigger.x, y: trigger.y, button: 'left', clickCount: 1 });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: trigger.x, y: trigger.y, button: 'left', clickCount: 1 });
+        await waitForExpression(page, `document.querySelector('[class*="ChatChannelListPreview__PossiblyWithDivider"]')?.getBoundingClientRect().width > 0`, 8_000);
+        const candidate = await evaluate(page, `(() => {
+            const cards = [...document.querySelectorAll('[class*="ChatChannelListPreview__PossiblyWithDivider"]')];
+            const safe = cards.filter((card) => { const rect = card.getBoundingClientRect(); return rect.width > 0 && rect.height > 0
+                && !card.querySelector('.str-chat__channel-preview-unread-badge, [class*="UnreadBadge"], [class*="UnreadDot"], [data-testid*="unread"]'); });
+            const node = safe[1] || safe[0]; const target = node?.querySelector('[class*="ChatChannelListPreview__Container"]') || node;
+            const rect = target?.getBoundingClientRect(); return rect ? { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 36), safeCount: safe.length } : null;
+        })()`);
+        if (!candidate) throw new Error('No safe read conversation is available for switching');
+        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: candidate.x, y: candidate.y, button: 'left', clickCount: 1 });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: candidate.x, y: candidate.y, button: 'left', clickCount: 1 });
+        await waitForExpression(page, `document.querySelectorAll('[data-vgen-nya-ui="quick-replies"]').length === 1`, 8_000);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const switched = await evaluate(page, `({ channels: document.querySelectorAll('.str-chat__channel').length,
+            roots: document.querySelectorAll('[data-vgen-nya-ui="quick-replies"]').length,
+            composers: document.querySelectorAll('textarea.str-chat__textarea__textarea, textarea.str-chat__message-textarea, [class*="MessageInput"] textarea').length })`);
+        const close = await evaluate(page, `(() => { const node = document.querySelector('.str-chat__channel button.closeBtn'); const rect = node?.getBoundingClientRect();
+            return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null; })()`);
+        if (!close) throw new Error('Native Chat close button was not found');
+        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: close.x, y: close.y, button: 'left', clickCount: 1 });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: close.x, y: close.y, button: 'left', clickCount: 1 });
+        await waitForExpression(page, `document.querySelectorAll('.str-chat__channel').length === 0`, 5_000);
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        const closed = await evaluate(page, `({ channels: document.querySelectorAll('.str-chat__channel').length,
+            roots: document.querySelectorAll('[data-vgen-nya-ui="quick-replies"]').length })`);
+        process.stdout.write(`${JSON.stringify({ before, safeCount: candidate.safeCount, switched, closed }, null, 2)}\n`);
+    } finally { client.close(); }
+}
+
+async function inspectTextPresetUiLive() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(() => {
+        const nodes = [...document.querySelectorAll('[data-vgen-nya-ui="quick-replies"], [data-vgen-nya-ui="upload-assistant"], #vgen-nya-settings-overlay')];
+        return nodes.map((node) => { const style = getComputedStyle(node); const rect = node.getBoundingClientRect(); return {
+            kind: node.dataset.vgenNyaUi || node.id, connected: node.isConnected, visible: rect.width > 0 && rect.height > 0,
+            width: Math.round(rect.width), overflowX: style.overflowX, color: style.color, background: style.backgroundColor,
+            duplicateCount: node.id ? document.querySelectorAll('#' + node.id).length : document.querySelectorAll('[data-vgen-nya-ui="' + node.dataset.vgenNyaUi + '"]').length,
+        }; });
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function inspectTextPresetSettingsUiLive() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(async () => {
+        const pause = () => new Promise((resolve) => setTimeout(resolve, 100));
+        const overlay = document.querySelector('#vgen-nya-settings-overlay');
+        if (!overlay) throw new Error('Settings overlay is unavailable');
+        const cases = [
+            ['upload', 'text', 'title'], ['upload', 'text', 'description'], ['chat', 'quick-reply', 'quick-reply'],
+            ['orders', 'text-presets', 'private-note'], ['orders', 'text-presets', 'final-delivery'],
+        ];
+        const states = [];
+        for (const [navigation, tab, section] of cases) {
+            overlay.querySelector('button[data-action="navigation"][data-id="' + navigation + '"]')?.click(); await pause();
+            overlay.querySelector('button[data-action="tab"][data-id="' + tab + '"]')?.click(); await pause();
+            const key = navigation + ':' + tab + ':' + section;
+            let toggle = overlay.querySelector('button[data-action="section"][data-id="' + key + '"]');
+            if (toggle?.getAttribute('aria-expanded') !== 'true') { toggle?.click(); await pause(); }
+            toggle = overlay.querySelector('button[data-action="section"][data-id="' + key + '"]');
+            const body = toggle?.closest('section')?.querySelector('.vgen-nya-settings__section-body');
+            const rect = body?.getBoundingClientRect();
+            const actionButton = body?.querySelector('.vgen-nya-settings__preset-editor button, .vgen-nya-settings__preset-add button');
+            states.push({ key, visible: Boolean(rect?.width && rect?.height), rows: body?.querySelectorAll('.vgen-nya-settings__preset-editor').length || 0,
+                addControls: body?.querySelectorAll('.vgen-nya-settings__preset-add input, .vgen-nya-settings__preset-add textarea, .vgen-nya-settings__preset-add button').length || 0,
+                overflows: Boolean(body && body.scrollWidth > body.clientWidth + 2), width: Math.round(rect?.width || 0),
+                toggleColor: toggle ? getComputedStyle(toggle).color : '', actionColor: actionButton ? getComputedStyle(actionButton).color : '',
+                actionBackground: actionButton ? getComputedStyle(actionButton).backgroundColor : '' });
+        }
+        const inactiveNav = overlay.querySelector('button[data-action="navigation"]:not([aria-current="page"])');
+        return { overlays: document.querySelectorAll('#vgen-nya-settings-overlay').length,
+            inactiveNavColor: inactiveNav ? getComputedStyle(inactiveNav).color : '', states };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function probeVGenTargetsSafe() {
+    const pages = (await targets()).filter((target) => target.type === 'page' && target.url.startsWith('https://vgen.co/'));
+    const results = [];
+    for (const page of pages) {
+        const state = await evaluate(page, `({ ready: document.readyState, fetchName: window.fetch?.name || '',
+            settings: document.querySelectorAll('#vgen-nya-settings-overlay').length,
+            frequent: document.querySelectorAll('[data-vgen-nya-ui="frequent-clients"]').length,
+            assistant: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            chat: document.querySelectorAll('.str-chat').length })`).catch((error) => ({ error: error.message }));
+        results.push({ id: page.id, url: page.url, state });
+    }
+    process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+}
+
+async function inspectPrivateNoteAutosaveSafety() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(() => {
+        const all = []; const roots = [document];
+        for (let index = 0; index < roots.length; index += 1) { const nodes = [...roots[index].querySelectorAll('*')]; all.push(...nodes);
+            for (const node of nodes) if (node.shadowRoot) roots.push(node.shadowRoot); }
+        const exact = all.filter((node) => /^note\s+to\s+self$/i.test((node.textContent || '').trim()));
+        const inputs = all.filter((node) => node.matches?.('textarea, input, [contenteditable="true"], [data-placeholder]')).filter((node) => /note\s+to\s+self/i.test([node.getAttribute('aria-label'), node.getAttribute('placeholder'),
+            node.getAttribute('data-placeholder'), node.labels?.[0]?.textContent, node.parentElement?.textContent?.slice(0, 120)].filter(Boolean).join(' ')));
+        const reactInfo = (input) => { let node = input; const handlers = new Set(); for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+            const key = Object.getOwnPropertyNames(node).find((name) => name.startsWith('__reactProps$'));
+            if (!key) continue; for (const name of ['onChange', 'onInput', 'onBlur', 'onKeyDown']) if (typeof node[key]?.[name] === 'function') handlers.add(name);
+        } return [...handlers]; };
+        return {
+            url: location.pathname,
+            shadowRoots: roots.length - 1,
+            bodyHasNoteLabel: /note\s+to\s+self/i.test(document.body?.innerText || ''),
+            frames: [...document.querySelectorAll('iframe')].map((frame) => ({ sameOrigin: Boolean(frame.contentDocument), path: (() => { try { return frame.contentWindow?.location?.pathname || ''; } catch { return 'cross-origin'; } })() })),
+            exactLabels: exact.map((node) => ({ tag: node.tagName, className: String(node.className || ''), role: node.getAttribute('role'),
+                parentTag: node.parentElement?.tagName, parentClass: String(node.parentElement?.className || '') })).slice(0, 20),
+            inputs: inputs.map((input) => ({ tag: input.tagName, type: input.type || '', contenteditable: input.getAttribute('contenteditable'),
+                placeholderKind: input.hasAttribute('placeholder') ? 'placeholder' : input.hasAttribute('data-placeholder') ? 'data-placeholder' : '', handlers: reactInfo(input),
+                hasValue: Boolean(input.value), formButtons: [...(input.closest('form')?.querySelectorAll('button') || [])].map((button) =>
+                    (button.textContent || button.getAttribute('aria-label') || '').trim()).filter((text) => /save|update|submit/i.test(text)).slice(0, 10) })),
+            injectedRoots: document.querySelectorAll('[data-vgen-nya-ui="private-note-presets"]').length,
+        };
+    })()`);
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
+async function openPrivateNoteInspectionSurface() {
+    const page = await chatLivePage();
+    const target = await evaluate(page, `(() => {
+        const visible = (node) => { const rect = node?.getBoundingClientRect(); return rect && rect.width > 120 && rect.height > 50 && rect.top >= 0 && rect.top < innerHeight; };
+        const candidates = [...document.querySelectorAll('a[href*="commission"], [class*="CommissionCard"], [class*="commissionCard"]')].filter(visible);
+        const node = candidates[0] || document.elementFromPoint(Math.min(innerWidth - 80, 460), Math.min(innerHeight - 80, 520));
+        const clickable = node?.closest?.('a,button,[role="button"]') || node;
+        const rect = clickable?.getBoundingClientRect();
+        return rect ? { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 70), tag: clickable.tagName,
+            className: String(clickable.className || ''), candidateCount: candidates.length } : null;
+    })()`);
+    if (!target) throw new Error('No visible commission detail target was found');
+    const client = await new CDPClient(page.webSocketDebuggerUrl).connect();
+    try {
+        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: target.x, y: target.y, button: 'left', clickCount: 1 });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: target.x, y: target.y, button: 'left', clickCount: 1 });
+    } finally { client.close(); }
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    process.stdout.write(`${JSON.stringify({ opened: true, tag: target.tag, className: target.className, candidateCount: target.candidateCount }, null, 2)}\n`);
+}
+
+async function measureTextPresetIdleCleanup() {
+    const page = await chatLivePage();
+    const result = await evaluate(page, `(async () => {
+        const close = [...document.querySelectorAll('#vgen-nya-settings-overlay button')].find((node) => node.textContent.trim() === '关闭');
+        close?.click();
+        const before = { settings: document.querySelectorAll('#vgen-nya-settings-overlay').length,
+            upload: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            quickReplies: document.querySelectorAll('[data-vgen-nya-ui="quick-replies"]').length,
+            privateNotes: document.querySelectorAll('[data-vgen-nya-ui="private-note-presets"]').length };
+        let ownedMutations = 0;
+        const observer = new MutationObserver((records) => { for (const record of records) {
+            const nodes = [record.target, ...(record.addedNodes || []), ...(record.removedNodes || [])];
+            if (nodes.some((node) => node?.matches?.('[data-vgen-nya-ui], #vgen-nya-settings-overlay') || node?.querySelector?.('[data-vgen-nya-ui], #vgen-nya-settings-overlay'))) ownedMutations += 1;
+        } });
+        observer.observe(document.body, { childList: true, subtree: true });
+        await new Promise((resolve) => setTimeout(resolve, 4_000)); observer.disconnect();
+        const after = { settings: document.querySelectorAll('#vgen-nya-settings-overlay').length,
+            upload: document.querySelectorAll('[data-vgen-nya-ui="upload-assistant"]').length,
+            quickReplies: document.querySelectorAll('[data-vgen-nya-ui="quick-replies"]').length,
+            privateNotes: document.querySelectorAll('[data-vgen-nya-ui="private-note-presets"]').length };
+        return { before, after, ownedMutations };
     })()`);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
@@ -1699,6 +2030,16 @@ if (process.argv.includes('--open-upload-live-modal')) await openUploadLiveModal
 if (process.argv.includes('--inspect-upload-live-modal')) await inspectUploadLiveModal();
 if (process.argv.includes('--inspect-upload-live-react')) await inspectUploadLiveReactState();
 if (process.argv.includes('--seed-upload-live-presets')) await seedUploadLivePresetsThroughSettings();
+if (process.argv.includes('--seed-text-preset-live')) await seedTextPresetLiveThroughSettings();
+if (process.argv.includes('--exercise-text-preset-upload-live')) await exerciseTextPresetUploadLive();
+if (process.argv.includes('--exercise-text-preset-chat-live')) await exerciseTextPresetChatLive();
+if (process.argv.includes('--exercise-text-preset-chat-lifecycle')) await exerciseTextPresetChatLifecycle();
+if (process.argv.includes('--inspect-text-preset-ui-live')) await inspectTextPresetUiLive();
+if (process.argv.includes('--inspect-text-preset-settings-ui-live')) await inspectTextPresetSettingsUiLive();
+if (process.argv.includes('--probe-vgen-targets-safe')) await probeVGenTargetsSafe();
+if (process.argv.includes('--inspect-private-note-autosave-safety')) await inspectPrivateNoteAutosaveSafety();
+if (process.argv.includes('--open-private-note-inspection')) await openPrivateNoteInspectionSurface();
+if (process.argv.includes('--measure-text-preset-idle-cleanup')) await measureTextPresetIdleCleanup();
 if (process.argv.includes('--exercise-upload-live-refresh')) await exerciseUploadLiveRefresh();
 if (process.argv.includes('--cycle-upload-live-modal')) await cycleUploadLiveModal();
 if (process.argv.includes('--exercise-upload-live-core')) await exerciseUploadLiveCore();
