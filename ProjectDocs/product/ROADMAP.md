@@ -106,6 +106,7 @@
 - 模型强度：Medium
 
 ## Iteration 8 — Export Adapter（不实现飞书）
+- Status：**MERGED / COMPLETE**（PR #7 已以 merge commit `36a5685` 合并到 `main`；`ExportAdapter` / `normalizeOrder` 白名单导出 identity + 公开评价为 JSON-safe plain object；排除 DOM node / function / internal UUID / auth / Private Note / Chat history；`npm test` 160/160、L1 128/128、L2 138/138、`release:check` 28/28）
 - Goal：NormalizedOrder → ExportAdapter（预留 FeishuExporter）
 - Modules：Order Assistant
 - Non-goals：不接飞书账户、不写 Feishu integration
