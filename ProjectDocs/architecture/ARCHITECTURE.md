@@ -69,6 +69,7 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 ## Review Assistant Runtime / UI 边界
 
 - Review Assistant 通过 `ReviewProviderAdapter`（config → request → parse → normalize → ReviewCandidate）生成，UI 不直接 fetch；Provider 请求只发送 keywords / length / star degree / system prompt，默认最小 context，不发送订单 ID、内部 UUID、消息历史或 Private Note。
+- 网络层经统一 `ProviderTransport`：userscript 优先 `GM_xmlhttpRequest`（`@connect *` 仅用于用户配置的 Provider Base URL，绕过 CORS），无 GM 时回退 browser fetch；请求目标只能来自用户配置的 Base URL，Base URL 仅接受 `https://`（本机 `http://localhost`/`127.0.0.1` 除外）并剥离 query/hash。
 - `ReviewSession` 是每次真实 Review UI 打开时的会话状态机（idle / generating / ready / error + generation lock），每 session 最多自动生成一次；关闭 abort 在途请求，dispose 后旧 response 不得回写。
 - `ReviewEditorAdapter` 只负责 detect / read / fill，复用 `NativeTextTarget`；不含 submit。非空输入要求明确替换确认。
 - 在 `REVIEW-LIVE-01` 验证真实 Review Surface 前，Review runtime 不安装 body/全局 observer、不轮询，仅保留 `openSurface` 入口供 synthetic fixture 与未来 live 使用；Review surface 不存在时 runtime 近乎零成本。

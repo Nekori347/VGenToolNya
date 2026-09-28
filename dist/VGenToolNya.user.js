@@ -12,7 +12,9 @@
 // @grant        GM_deleteValue
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
+// @connect      *
 // ==/UserScript==
 (() => {
   // src/core/clipboard.js
@@ -5279,6 +5281,74 @@ ${summary}
     }
   };
 
+  // src/review/provider-transport.js
+  function requestError(message) {
+    return Object.assign(new Error(message), { name: "Error" });
+  }
+  function abortError2() {
+    return Object.assign(new Error("Provider request aborted"), { name: "AbortError" });
+  }
+  function timeoutError() {
+    return Object.assign(new Error("Provider request timed out"), { name: "TimeoutError" });
+  }
+  function responseFromGm(response) {
+    const status = Number(response?.status) || 0;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      async json() {
+        return JSON.parse(String(response?.responseText ?? "null"));
+      },
+      async text() {
+        return String(response?.responseText ?? "");
+      }
+    };
+  }
+  var FetchProviderTransport = class {
+    constructor({ fetchImpl = globalThis.fetch } = {}) {
+      this.fetchImpl = fetchImpl;
+    }
+    request(url, options) {
+      if (typeof this.fetchImpl !== "function") return Promise.reject(requestError("Fetch is unavailable"));
+      return this.fetchImpl(url, options);
+    }
+  };
+  var GMProviderTransport = class {
+    constructor({ gmRequest } = {}) {
+      if (typeof gmRequest !== "function") throw new TypeError("GMProviderTransport requires GM_xmlhttpRequest");
+      this.gmRequest = gmRequest;
+    }
+    request(url, options = {}) {
+      return new Promise((resolve, reject) => {
+        let settled = false;
+        const settle = (fn, value) => {
+          if (settled) return;
+          settled = true;
+          fn(value);
+        };
+        const request = this.gmRequest({
+          method: options.method || "POST",
+          url,
+          headers: options.headers || {},
+          data: options.body,
+          onload: (response) => settle(resolve, responseFromGm(response)),
+          onerror: (error) => settle(reject, requestError(`Provider request failed: ${String(error?.error || error || "network error")}`)),
+          ontimeout: () => settle(reject, timeoutError()),
+          onabort: () => settle(reject, abortError2())
+        });
+        const signal = options.signal;
+        const abort = () => request?.abort?.();
+        if (signal?.aborted) abort();
+        else if (signal) signal.addEventListener?.("abort", abort, { once: true });
+      });
+    }
+  };
+  function createProviderTransport({ gm = globalThis, fetchImpl = globalThis.fetch } = {}) {
+    const gmRequest = gm?.GM_xmlhttpRequest;
+    if (typeof gmRequest === "function") return new GMProviderTransport({ gmRequest });
+    return new FetchProviderTransport({ fetchImpl });
+  }
+
   // src/review/review-provider-adapter.js
   var REVIEW_PROVIDER_ERRORS = Object.freeze({
     notConfigured: "PROVIDER_NOT_CONFIGURED",
@@ -5311,8 +5381,22 @@ ${summary}
     4: "positive and appreciative",
     5: "strongly positive and enthusiastic"
   });
+  var LOCAL_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\])$/i;
+  function normalizeProviderBaseUrl(value) {
+    const base = String(value ?? "").trim();
+    if (!base) return "";
+    let url;
+    try {
+      url = new URL(base);
+    } catch {
+      return "";
+    }
+    const protocol = url.protocol.toLowerCase();
+    if (protocol !== "https:" && !(protocol === "http:" && LOCAL_HOSTS.test(url.hostname))) return "";
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  }
   function buildChatCompletionsUrl(baseUrl) {
-    const base = String(baseUrl ?? "").trim().replace(/\/+$/, "");
+    const base = normalizeProviderBaseUrl(baseUrl);
     return base ? `${base}/chat/completions` : "";
   }
   function buildReviewUserPrompt({ keywords = [], length = "Medium", starDegree = 3, distinctFromRecent = false } = {}) {
@@ -5356,8 +5440,8 @@ ${summary}
     return REVIEW_PROVIDER_ERRORS.http;
   }
   var ReviewProviderAdapter = class {
-    constructor({ fetchImpl = globalThis.fetch, AbortControllerClass = globalThis.AbortController, timeoutMs = 3e4, now = () => Date.now() } = {}) {
-      this.fetchImpl = fetchImpl;
+    constructor({ transport, fetchImpl, AbortControllerClass = globalThis.AbortController, timeoutMs = 3e4, now = () => Date.now() } = {}) {
+      this.transport = transport || new FetchProviderTransport({ fetchImpl: fetchImpl || globalThis.fetch });
       this.AbortControllerClass = AbortControllerClass;
       this.timeoutMs = timeoutMs;
       this.now = now;
@@ -5368,9 +5452,6 @@ ${summary}
       }
       const url = buildChatCompletionsUrl(config.baseUrl);
       if (!url) throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.notConfigured, "Provider base URL is invalid");
-      if (typeof this.fetchImpl !== "function") {
-        throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.network, "Fetch is unavailable");
-      }
       const body = {
         model: config.model,
         messages: [
@@ -5399,7 +5480,7 @@ ${summary}
       const timer = typeof setTimeout === "function" ? setTimeout(() => controller?.abort("timeout"), this.timeoutMs) : null;
       let response;
       try {
-        response = await this.fetchImpl(url, {
+        response = await this.transport.request(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -6059,7 +6140,8 @@ ${summary}
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
     const clientReviewAdapter = new ClientReviewAdapter({ fetchImpl: pageWindow2.fetch?.bind(pageWindow2), DOMParserClass: pageWindow2.DOMParser });
     const orderAssistant = new OrderAssistantRuntime({ repository: orderRepository, clipboard, adapter: clientReviewAdapter, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver, AbortControllerClass: pageWindow2.AbortController });
-    const reviewAdapter = new ReviewProviderAdapter({ fetchImpl: pageWindow2.fetch?.bind(pageWindow2), AbortControllerClass: pageWindow2.AbortController });
+    const reviewTransport = createProviderTransport({ gm, fetchImpl: pageWindow2.fetch?.bind(pageWindow2) });
+    const reviewAdapter = new ReviewProviderAdapter({ transport: reviewTransport, AbortControllerClass: pageWindow2.AbortController });
     const reviewAssistant = new ReviewAssistantRuntime({ repository: reviewRepository, adapter: reviewAdapter, clipboard, documentObject: pageWindow2.document, AbortControllerClass: pageWindow2.AbortController });
     modules.register("settings", settingsShell);
     modules.register("upload-assistant", uploadAssistant);

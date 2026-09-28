@@ -30,6 +30,7 @@ import { OrderAssistantRuntime } from './order/order-assistant.js';
 import { ClientReviewAdapter } from './order/client-review-adapter.js';
 import { ReviewConfigRepository } from './review/review-config.js';
 import { ReviewProviderAdapter } from './review/review-provider-adapter.js';
+import { createProviderTransport } from './review/provider-transport.js';
 import { ReviewAssistantRuntime } from './review/review-assistant.js';
 import { createReviewSettingsNavigation } from './settings/review-settings.js';
 
@@ -62,7 +63,8 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
     const clientReviewAdapter = new ClientReviewAdapter({ fetchImpl: pageWindow.fetch?.bind(pageWindow), DOMParserClass: pageWindow.DOMParser });
     const orderAssistant = new OrderAssistantRuntime({ repository: orderRepository, clipboard, adapter: clientReviewAdapter, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver, AbortControllerClass: pageWindow.AbortController });
-    const reviewAdapter = new ReviewProviderAdapter({ fetchImpl: pageWindow.fetch?.bind(pageWindow), AbortControllerClass: pageWindow.AbortController });
+    const reviewTransport = createProviderTransport({ gm, fetchImpl: pageWindow.fetch?.bind(pageWindow) });
+    const reviewAdapter = new ReviewProviderAdapter({ transport: reviewTransport, AbortControllerClass: pageWindow.AbortController });
     const reviewAssistant = new ReviewAssistantRuntime({ repository: reviewRepository, adapter: reviewAdapter, clipboard, documentObject: pageWindow.document, AbortControllerClass: pageWindow.AbortController });
     modules.register('settings', settingsShell);
     modules.register('upload-assistant', uploadAssistant);

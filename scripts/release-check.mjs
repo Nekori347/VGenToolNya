@@ -76,6 +76,11 @@ try {
     check(JSON.stringify(userMetadata.values.get('grant')) === JSON.stringify(config.grant)
         && JSON.stringify(metaMetadata.values.get('grant')) === JSON.stringify(config.grant),
     'userscript grants match the reviewed release configuration');
+    check(userMetadata.values.has('connect') && metaMetadata.values.has('connect'),
+        'metadata declares @connect for the cross-origin Provider transport');
+    check(JSON.stringify(userMetadata.values.get('connect')) === JSON.stringify(config.connect)
+        && JSON.stringify(metaMetadata.values.get('connect')) === JSON.stringify(config.connect),
+        '@connect policy matches the reviewed release configuration (user-configured Provider Base URL only)');
     const referencedCapabilities = [...new Set([
         ...(distUser.match(/\bGM_[A-Za-z0-9_]+\b/g) || []),
         ...(distUser.match(/\bunsafeWindow\b/g) || []),

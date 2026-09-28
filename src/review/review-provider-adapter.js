@@ -1,4 +1,5 @@
 import { isReviewProviderConfigured } from './review-config.js';
+import { FetchProviderTransport } from './provider-transport.js';
 
 export const REVIEW_PROVIDER_ERRORS = Object.freeze({
     notConfigured: 'PROVIDER_NOT_CONFIGURED',
@@ -35,8 +36,28 @@ const STAR_DEGREE_GUIDE = Object.freeze({
     5: 'strongly positive and enthusiastic',
 });
 
+const LOCAL_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\])$/i;
+
+// Normalizes a user-configured Provider Base URL into a safe origin+path with
+// no query/hash and no trailing slash. Only https is accepted by default;
+// plain http is allowed exclusively for local loopback hosts. Any other scheme
+// (javascript:, data:, file:, ftp:, ...) or an unparseable URL yields ''.
+export function normalizeProviderBaseUrl(value) {
+    const base = String(value ?? '').trim();
+    if (!base) return '';
+    let url;
+    try {
+        url = new URL(base);
+    } catch {
+        return '';
+    }
+    const protocol = url.protocol.toLowerCase();
+    if (protocol !== 'https:' && !(protocol === 'http:' && LOCAL_HOSTS.test(url.hostname))) return '';
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
 export function buildChatCompletionsUrl(baseUrl) {
-    const base = String(baseUrl ?? '').trim().replace(/\/+$/, '');
+    const base = normalizeProviderBaseUrl(baseUrl);
     return base ? `${base}/chat/completions` : '';
 }
 
@@ -85,8 +106,8 @@ function errorFromStatus(status) {
 }
 
 export class ReviewProviderAdapter {
-    constructor({ fetchImpl = globalThis.fetch, AbortControllerClass = globalThis.AbortController, timeoutMs = 30000, now = () => Date.now() } = {}) {
-        this.fetchImpl = fetchImpl;
+    constructor({ transport, fetchImpl, AbortControllerClass = globalThis.AbortController, timeoutMs = 30000, now = () => Date.now() } = {}) {
+        this.transport = transport || new FetchProviderTransport({ fetchImpl: fetchImpl || globalThis.fetch });
         this.AbortControllerClass = AbortControllerClass;
         this.timeoutMs = timeoutMs;
         this.now = now;
@@ -98,9 +119,6 @@ export class ReviewProviderAdapter {
         }
         const url = buildChatCompletionsUrl(config.baseUrl);
         if (!url) throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.notConfigured, 'Provider base URL is invalid');
-        if (typeof this.fetchImpl !== 'function') {
-            throw new ReviewProviderError(REVIEW_PROVIDER_ERRORS.network, 'Fetch is unavailable');
-        }
         const body = {
             model: config.model,
             messages: [
@@ -130,7 +148,7 @@ export class ReviewProviderAdapter {
         const timer = typeof setTimeout === 'function' ? setTimeout(() => controller?.abort('timeout'), this.timeoutMs) : null;
         let response;
         try {
-            response = await this.fetchImpl(url, {
+            response = await this.transport.request(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

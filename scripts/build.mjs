@@ -23,6 +23,7 @@ function metadataLines(config, version, releaseBaseUrl = '') {
     }
     lines.push(`// @run-at       ${config.runAt}`);
     for (const grant of config.grant) lines.push(`// @grant        ${grant}`);
+    for (const connect of config.connect || []) lines.push(`// @connect      ${connect}`);
     lines.push('// ==/UserScript==');
     return `${lines.join('\n')}\n`;
 }

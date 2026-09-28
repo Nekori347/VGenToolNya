@@ -18,11 +18,17 @@ import { RecentReviewHistory, REVIEW_HISTORY_LIMIT } from '../src/review/review-
 import {
     buildChatCompletionsUrl,
     buildReviewUserPrompt,
+    normalizeProviderBaseUrl,
     parseReviewPayload,
     ReviewProviderAdapter,
     ReviewProviderError,
     REVIEW_PROVIDER_ERRORS,
 } from '../src/review/review-provider-adapter.js';
+import {
+    createProviderTransport,
+    FetchProviderTransport,
+    GMProviderTransport,
+} from '../src/review/provider-transport.js';
 import { ReviewSession, REVIEW_SESSION_STATES } from '../src/review/review-session.js';
 import { ReviewEditorAdapter, ReviewEditorTarget, defaultReviewEditorDetect } from '../src/review/review-editor-adapter.js';
 import { ReviewAssistantRuntime, ReviewAssistantSession } from '../src/review/review-assistant.js';
@@ -83,6 +89,72 @@ test('Iteration 6 L1: chat completions URL and user prompt carry endpoint, lengt
     assert.match(prompt, /fast, friendly/);
     assert.match(buildReviewUserPrompt({ keywords: [], length: 'Short', starDegree: 1 }), /1 of 5/);
     assert.match(buildReviewUserPrompt({ keywords: [], length: 'Short', starDegree: 3, distinctFromRecent: true }), /Phrase this differently/);
+});
+
+test('Iteration 6 L1: provider base URL rejects unsafe schemes and strips query/hash and trailing slash', () => {
+    assert.equal(normalizeProviderBaseUrl('https://api.example.com/v1/'), 'https://api.example.com/v1');
+    assert.equal(normalizeProviderBaseUrl('https://api.example.com/v1?foo=bar#x'), 'https://api.example.com/v1');
+    assert.equal(normalizeProviderBaseUrl('http://localhost:11434/v1/'), 'http://localhost:11434/v1');
+    assert.equal(normalizeProviderBaseUrl('http://127.0.0.1:8000'), 'http://127.0.0.1:8000');
+    assert.equal(normalizeProviderBaseUrl('javascript:alert(1)'), '');
+    assert.equal(normalizeProviderBaseUrl('data:text/plain,x'), '');
+    assert.equal(normalizeProviderBaseUrl('file:///etc/passwd'), '');
+    assert.equal(normalizeProviderBaseUrl('ftp://example.com/v1'), '');
+    assert.equal(normalizeProviderBaseUrl('http://evil.example.com/v1'), '');
+    assert.equal(normalizeProviderBaseUrl('not a url'), '');
+    assert.equal(normalizeProviderBaseUrl(''), '');
+    assert.equal(buildChatCompletionsUrl('javascript:alert(1)'), '');
+    assert.equal(buildChatCompletionsUrl('https://api.example.com/v1/extra/'), 'https://api.example.com/v1/extra/chat/completions');
+});
+
+test('Iteration 6 L1: provider transport selects GM when available and falls back to browser fetch', () => {
+    assert.ok(createProviderTransport({ gm: { GM_xmlhttpRequest: () => {} }, fetchImpl: async () => ({}) }) instanceof GMProviderTransport);
+    assert.ok(createProviderTransport({ gm: {}, fetchImpl: async () => ({}) }) instanceof FetchProviderTransport);
+});
+
+test('Iteration 6 L1: GM transport normalizes responses, maps errors and honors abort', async () => {
+    let captured;
+    const gmRequest = (options) => {
+        captured = options;
+        return { abort() { options.onabort?.(); } };
+    };
+    const transport = new GMProviderTransport({ gmRequest });
+
+    const first = transport.request('https://api.example.com/v1/chat/completions', { method: 'POST', headers: { Authorization: 'Bearer x' }, body: '{}' });
+    captured.onload({ status: 200, responseText: '{"choices":[]}' });
+    const okResponse = await first;
+    assert.equal(okResponse.ok, true);
+    assert.equal(okResponse.status, 200);
+    assert.deepEqual(await okResponse.json(), { choices: [] });
+    assert.equal(captured.method, 'POST');
+    assert.equal(captured.headers.Authorization, 'Bearer x');
+    assert.equal(captured.data, '{}');
+
+    const controller = new AbortController();
+    const aborted = transport.request('https://api.example.com/x', { signal: controller.signal });
+    controller.abort();
+    await assert.rejects(aborted, (error) => error.name === 'AbortError');
+
+    const unauthorized = transport.request('https://api.example.com/x', {});
+    captured.onload({ status: 401, responseText: '{}' });
+    assert.equal((await unauthorized).ok, false);
+
+    const errored = transport.request('https://api.example.com/x', {});
+    captured.onerror({ error: 'boom' });
+    await assert.rejects(errored, (error) => error.name === 'Error');
+});
+
+test('Iteration 6 L1: adapter routes through the injected GM transport', async () => {
+    let captured;
+    const gmRequest = (options) => { captured = options; return { abort() { options.onabort?.(); } }; };
+    const adapter = new ReviewProviderAdapter({ transport: new GMProviderTransport({ gmRequest }), AbortControllerClass: AbortController });
+    const promise = adapter.generate({ config: configuredProvider(), keywords: ['x'], length: 'Medium', starDegree: 3 });
+    const content = JSON.stringify({ english: 'Via GM', chinese: '通过 GM' });
+    captured.onload({ status: 200, responseText: JSON.stringify({ choices: [{ message: { content } }] }) });
+    const result = await promise;
+    assert.deepEqual(result, { english: 'Via GM', chinese: '通过 GM' });
+    assert.equal(captured.url, 'https://api.example.com/v1/chat/completions');
+    assert.equal(captured.headers.Authorization, 'Bearer sk-test-1234567890');
 });
 
 test('Iteration 6 L1: parser accepts valid and fenced JSON and rejects invalid, missing-english and missing-chinese', () => {
