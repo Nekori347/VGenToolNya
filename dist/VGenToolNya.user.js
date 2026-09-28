@@ -12,6 +12,7 @@
 // @grant        GM_deleteValue
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
+// @grant        unsafeWindow
 // ==/UserScript==
 (() => {
   // src/core/clipboard.js
@@ -2035,16 +2036,1545 @@ ${summary}
     }
   };
 
+  // src/chat/chat-config.js
+  var CHAT_DEFAULTS = Object.freeze({
+    enabled: true,
+    keepUnread: false,
+    reactionMarkRead: false,
+    showSeen: true,
+    showTimestamps: true,
+    showStatusBar: true,
+    compactReactions: true
+  });
+  var CLIENTS_DEFAULTS = Object.freeze({
+    enabled: true,
+    minHeight: 220,
+    rowHeight: 52,
+    collapsed: false
+  });
+  var clamp2 = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+  var string = (value, maximum = Infinity) => typeof value === "string" ? value.slice(0, maximum) : "";
+  function normalizeChatSettings(value = {}) {
+    const raw = isPlainObject(value) ? value : {};
+    return {
+      ...cloneStorageValue(raw),
+      enabled: raw.enabled !== false,
+      keepUnread: Boolean(raw.keepUnread),
+      reactionMarkRead: Boolean(raw.reactionMarkRead),
+      showSeen: raw.showSeen !== false,
+      showTimestamps: raw.showTimestamps !== false,
+      showStatusBar: raw.showStatusBar !== false,
+      compactReactions: raw.compactReactions !== false
+    };
+  }
+  function normalizeClientsSettings(value = {}) {
+    const raw = isPlainObject(value) ? value : {};
+    return {
+      ...cloneStorageValue(raw),
+      enabled: raw.enabled !== false,
+      minHeight: clamp2(Number(raw.minHeight) || CLIENTS_DEFAULTS.minHeight, 120, 520),
+      rowHeight: clamp2(Number(raw.rowHeight) || CLIENTS_DEFAULTS.rowHeight, 42, 88),
+      collapsed: Boolean(raw.collapsed)
+    };
+  }
+  function normalizeClient(item, index = 0) {
+    if (!isPlainObject(item)) throw new TypeError(`Frequent Client ${index + 1} must be an object`);
+    const username = string(item.username).trim().replace(/^@/, "");
+    if (!username) throw new TypeError(`Frequent Client ${index + 1} requires username`);
+    return {
+      ...cloneStorageValue(item),
+      id: string(item.id) || `client-${index + 1}`,
+      username,
+      url: string(item.url) || `https://vgen.co/${encodeURIComponent(username)}`,
+      note: string(item.note, 80),
+      userID: string(item.userID),
+      displayName: string(item.displayName),
+      avatarURL: string(item.avatarURL),
+      bannerURL: string(item.bannerURL),
+      announcementMessage: string(item.announcementMessage, 500),
+      announcementModified: string(item.announcementModified),
+      lastServiceUpdate: string(item.lastServiceUpdate),
+      lastPortfolioUpdate: string(item.lastPortfolioUpdate),
+      serviceFetchFailed: Boolean(item.serviceFetchFailed),
+      portfolioFetchFailed: Boolean(item.portfolioFetchFailed),
+      profileFetchedAt: Number(item.profileFetchedAt) || 0,
+      createdAt: Number(item.createdAt) || Date.now()
+    };
+  }
+  function normalizeClients(value = []) {
+    if (!Array.isArray(value)) throw new TypeError("Frequent Clients must be an array");
+    const seen = /* @__PURE__ */ new Set();
+    const result = [];
+    value.forEach((item, index) => {
+      const client = normalizeClient(item, index);
+      const key = client.username.toLocaleLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push(client);
+    });
+    return result;
+  }
+  var ChatConfigRepository = class {
+    constructor(store) {
+      this.store = store;
+      this.listeners = /* @__PURE__ */ new Set();
+    }
+    read() {
+      return {
+        chatSettings: normalizeChatSettings(readCompatibleConfig(this.store, CONFIG_KEYS.chatSettings, CHAT_DEFAULTS).value),
+        clientsSettings: normalizeClientsSettings(readCompatibleConfig(this.store, CONFIG_KEYS.clientsSettings, CLIENTS_DEFAULTS).value),
+        clients: normalizeClients(readCompatibleConfig(this.store, CONFIG_KEYS.clients, []).value)
+      };
+    }
+    writeChatSettings(value) {
+      return this.#write(CONFIG_KEYS.chatSettings, normalizeChatSettings(value), "chat-settings");
+    }
+    writeClientsSettings(value) {
+      return this.#write(CONFIG_KEYS.clientsSettings, normalizeClientsSettings(value), "clients-settings");
+    }
+    writeClients(value) {
+      return this.#write(CONFIG_KEYS.clients, normalizeClients(value), "clients");
+    }
+    reorderClient(from, to) {
+      const clients = this.read().clients;
+      if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from >= clients.length || to >= clients.length) {
+        throw new RangeError("Invalid Frequent Client order");
+      }
+      const [client] = clients.splice(from, 1);
+      clients.splice(to, 0, client);
+      return this.writeClients(clients);
+    }
+    removeClient(id) {
+      return this.writeClients(this.read().clients.filter((client) => client.id !== id));
+    }
+    subscribe(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    #write(key, value, domain) {
+      const stored = this.store.writeVerified(key, value, (candidate) => key === CONFIG_KEYS.clients ? Array.isArray(candidate) : isPlainObject(candidate));
+      for (const listener of this.listeners) listener({ domain, value: cloneStorageValue(stored) });
+      return stored;
+    }
+  };
+
+  // src/chat/read-gate.js
+  function parseJSON(value) {
+    if (!value) return null;
+    if (typeof value === "object" && !(value instanceof ArrayBuffer)) return value;
+    try {
+      return JSON.parse(String(value));
+    } catch {
+      return null;
+    }
+  }
+  function channelIdFromURL(value, base = "https://vgen.co/") {
+    try {
+      const pathname = new URL(String(value || ""), base).pathname;
+      const match = pathname.match(/\/channels\/([^/]+)\/([^/]+)(?:\/|$)/i);
+      return match ? `${decodeURIComponent(match[1])}:${decodeURIComponent(match[2])}` : null;
+    } catch {
+      return null;
+    }
+  }
+  function classifyStreamRequest(method, value, base = "https://vgen.co/") {
+    try {
+      const parsed = new URL(String(value || ""), base);
+      if (!/(^|\.)stream-io-api\.com$/i.test(parsed.hostname)) return { kind: "other", cid: null };
+      const upper = String(method || "GET").toUpperCase();
+      const cid = channelIdFromURL(parsed.href, base);
+      if (upper === "POST" && /\/channels\/(?:[^/]+\/[^/]+\/read|read)$/i.test(parsed.pathname)) return { kind: "read", cid };
+      if (upper === "POST" && /\/channels\/[^/]+\/[^/]+\/message$/i.test(parsed.pathname)) return { kind: "message", cid };
+      const reaction = parsed.pathname.match(/\/messages\/([^/]+)\/reaction(?:\/[^/]+)?$/i);
+      if (reaction && /^(POST|DELETE)$/.test(upper)) return { kind: "reaction", cid, messageId: decodeURIComponent(reaction[1]) };
+      return { kind: "other", cid };
+    } catch {
+      return { kind: "other", cid: null };
+    }
+  }
+  var ReadGate = class {
+    constructor({ enabled = false, reactionMarkRead = false } = {}) {
+      this.enabled = Boolean(enabled);
+      this.reactionMarkRead = Boolean(reactionMarkRead);
+      this.latest = /* @__PURE__ */ new Map();
+      this.pending = /* @__PURE__ */ new Map();
+      this.manualPermits = /* @__PURE__ */ new Map();
+      this.replyBoundaries = /* @__PURE__ */ new Map();
+      this.confirmations = /* @__PURE__ */ new Set();
+    }
+    configure({ enabled = this.enabled, reactionMarkRead = this.reactionMarkRead } = {}) {
+      const wasEnabled = this.enabled;
+      this.enabled = Boolean(enabled);
+      this.reactionMarkRead = Boolean(reactionMarkRead);
+      if (wasEnabled && !this.enabled) this.cancelAll("read-control-disabled");
+    }
+    channelForMessage(messageId) {
+      const wanted = String(messageId || "");
+      if (!wanted) return null;
+      for (const [cid, message] of this.latest) if (message.id === wanted) return cid;
+      return null;
+    }
+    observeLatest(cid, message) {
+      if (!cid || !message?.id) return;
+      const current = this.latest.get(cid);
+      this.latest.set(cid, { id: String(message.id), createdAt: message.created_at || message.createdAt || null, senderId: message.user?.id || message.senderId || null });
+      if (current?.id && current.id !== message.id) this.replyBoundaries.delete(cid);
+    }
+    interceptRead({ cid, body, perform, cancel }) {
+      if (!this.enabled || !cid) return perform("native");
+      const requestedId = parseJSON(body)?.message_id;
+      const latest = this.latest.get(cid);
+      const manual = this.manualPermits.get(cid);
+      if (manual && latest?.id === manual.targetId && (!requestedId || requestedId === manual.targetId)) {
+        this.manualPermits.delete(cid);
+        return perform(manual.reason);
+      }
+      const reply = this.replyBoundaries.get(cid);
+      if (reply && latest?.id === reply.targetId && (!requestedId || requestedId === reply.targetId)) return perform("confirmed-reply-boundary");
+      return new Promise((resolve, reject) => {
+        const entry = {
+          release: (reason) => Promise.resolve().then(() => perform(reason)).then(resolve, reject),
+          cancel: (reason) => {
+            cancel?.(reason);
+            const error = new Error(`Read request cancelled: ${reason}`);
+            error.name = "AbortError";
+            reject(error);
+          }
+        };
+        const entries = this.pending.get(cid) || [];
+        if (entries.length >= 4) entries.shift().cancel("superseded");
+        entries.push(entry);
+        this.pending.set(cid, entries);
+      });
+    }
+    manualRelease(cid, nativeMarkRead) {
+      const target = this.latest.get(cid);
+      if (!this.enabled || !cid || !target?.id || this.confirmations.has(cid)) return { released: 0, reason: "boundary-unavailable" };
+      this.confirmations.add(cid);
+      const entries = this.pending.get(cid) || [];
+      this.pending.delete(cid);
+      if (entries.length) {
+        entries.forEach((entry) => entry.release("manual-click"));
+        return { released: entries.length };
+      }
+      this.manualPermits.set(cid, { targetId: target.id, reason: "manual-click" });
+      return { released: 0, operation: nativeMarkRead?.({ message_id: target.id }) };
+    }
+    confirmServerRead(cid) {
+      this.confirmations.delete(cid);
+      this.manualPermits.delete(cid);
+    }
+    confirmReply(cid, message) {
+      if (!this.enabled || !cid || !message?.id) return 0;
+      this.observeLatest(cid, message);
+      this.replyBoundaries.set(cid, { targetId: String(message.id), createdAt: message.created_at || null });
+      return this.#release(cid, "confirmed-reply-boundary");
+    }
+    confirmReaction(cid, boundaryId) {
+      if (!this.enabled || !this.reactionMarkRead || this.latest.get(cid)?.id !== boundaryId) return 0;
+      return this.#release(cid, "confirmed-reaction");
+    }
+    cancelAll(reason = "cleanup") {
+      for (const entries of this.pending.values()) entries.forEach((entry) => entry.cancel(reason));
+      this.pending.clear();
+      this.manualPermits.clear();
+      this.replyBoundaries.clear();
+      this.confirmations.clear();
+    }
+    #release(cid, reason) {
+      const entries = this.pending.get(cid) || [];
+      this.pending.delete(cid);
+      entries.forEach((entry) => entry.release(reason));
+      return entries.length;
+    }
+  };
+
+  // src/chat/network-hooks.js
+  async function responseJSON(response) {
+    try {
+      return await response?.clone?.().json?.();
+    } catch {
+      return null;
+    }
+  }
+  var ChatNetworkHooks = class {
+    constructor({ windowObject = globalThis, readGate, onDiagnosticEvent = () => {
+    } } = {}) {
+      this.window = windowObject;
+      this.readGate = readGate;
+      this.onDiagnosticEvent = onDiagnosticEvent;
+      this.readEnabled = false;
+      this.diagnosticsEnabled = false;
+      this.httpNatives = null;
+      this.realtimeNatives = null;
+      this.xhrMeta = /* @__PURE__ */ new WeakMap();
+    }
+    configureRead(enabled) {
+      this.readEnabled = Boolean(enabled);
+      this.#sync();
+    }
+    configureDiagnostics(enabled) {
+      this.diagnosticsEnabled = Boolean(enabled);
+      this.#sync();
+    }
+    #sync() {
+      if (this.readEnabled || this.diagnosticsEnabled) this.#installHTTP();
+      else this.#restoreHTTP();
+      if (this.diagnosticsEnabled) this.#installRealtime();
+      else this.#restoreRealtime();
+    }
+    #installHTTP() {
+      if (this.httpNatives) return;
+      const windowObject = this.window;
+      const nativeFetch = windowObject.fetch;
+      const XHR = windowObject.XMLHttpRequest;
+      this.httpNatives = {
+        fetch: nativeFetch,
+        XHR,
+        open: XHR?.prototype?.open,
+        send: XHR?.prototype?.send,
+        abort: XHR?.prototype?.abort
+      };
+      if (typeof nativeFetch === "function") {
+        const runtime = this;
+        windowObject.fetch = function vgenNyaFetch(input, init = {}) {
+          const rawURL = typeof input === "string" || input instanceof URL ? String(input) : input?.url;
+          const method = init.method || input?.method || "GET";
+          const classification = classifyStreamRequest(method, rawURL, windowObject.location?.href);
+          if (classification.kind === "reaction" && !classification.cid) classification.cid = runtime.readGate?.channelForMessage(classification.messageId);
+          const boundary = classification.kind === "reaction" ? runtime.readGate?.latest.get(classification.cid)?.id : null;
+          const perform = (reason = "native") => {
+            runtime.#event("http.request", { method: String(method).toUpperCase(), kind: classification.kind, cid: classification.cid, reason });
+            const result = nativeFetch.apply(this, arguments);
+            Promise.resolve(result).then(async (response) => {
+              const raw = classification.kind === "message" ? await responseJSON(response) : null;
+              runtime.#finish(classification, response?.ok, raw, boundary);
+              runtime.#event("http.response", { status: response?.status, kind: classification.kind, cid: classification.cid });
+            }, (error) => runtime.#event("http.error", { kind: classification.kind, name: error?.name || "Error" }));
+            return result;
+          };
+          if (runtime.readEnabled && classification.kind === "read") {
+            return runtime.readGate.interceptRead({ cid: classification.cid, body: init.body, perform });
+          }
+          return perform();
+        };
+        Object.setPrototypeOf(windowObject.fetch, nativeFetch);
+      }
+      if (XHR?.prototype && typeof this.httpNatives.open === "function" && typeof this.httpNatives.send === "function") {
+        const runtime = this;
+        XHR.prototype.open = function vgenNyaOpen(method, url) {
+          runtime.xhrMeta.set(this, { method, url });
+          return runtime.httpNatives.open.apply(this, arguments);
+        };
+        XHR.prototype.send = function vgenNyaSend(body) {
+          const xhr = this;
+          const meta = runtime.xhrMeta.get(xhr) || {};
+          const classification = classifyStreamRequest(meta.method, meta.url, windowObject.location?.href);
+          if (classification.kind === "reaction" && !classification.cid) classification.cid = runtime.readGate?.channelForMessage(classification.messageId);
+          const boundary = classification.kind === "reaction" ? runtime.readGate?.latest.get(classification.cid)?.id : null;
+          const perform = (reason = "native") => {
+            runtime.#event("http.request", { method: String(meta.method || "GET").toUpperCase(), kind: classification.kind, cid: classification.cid, reason });
+            const onLoad = () => {
+              let raw = null;
+              if (classification.kind === "message") {
+                try {
+                  raw = xhr.responseType === "json" ? xhr.response : JSON.parse(xhr.responseText || "null");
+                } catch {
+                }
+              }
+              runtime.#finish(classification, xhr.status >= 200 && xhr.status < 300, raw, boundary);
+              runtime.#event("http.response", { status: xhr.status, kind: classification.kind, cid: classification.cid });
+              xhr.removeEventListener?.("load", onLoad);
+            };
+            xhr.addEventListener?.("load", onLoad);
+            return runtime.httpNatives.send.call(xhr, body);
+          };
+          if (runtime.readEnabled && classification.kind === "read") {
+            void runtime.readGate.interceptRead({
+              cid: classification.cid,
+              body,
+              perform,
+              cancel: () => runtime.httpNatives.abort?.call(xhr)
+            }).catch(() => {
+            });
+            return void 0;
+          }
+          return perform();
+        };
+      }
+    }
+    #finish(classification, ok, raw, boundary) {
+      if (!ok || !this.readGate) return;
+      if (classification.kind === "message") {
+        const message = raw?.message || raw?.event?.message;
+        if (message?.id) this.readGate.confirmReply(classification.cid, message);
+      }
+      if (classification.kind === "reaction") this.readGate.confirmReaction(classification.cid, boundary);
+      if (classification.kind === "read") this.readGate.confirmServerRead(classification.cid);
+    }
+    #restoreHTTP() {
+      if (!this.httpNatives) return;
+      const { fetch, XHR, open, send, abort } = this.httpNatives;
+      if (fetch) this.window.fetch = fetch;
+      if (XHR?.prototype) {
+        if (open) XHR.prototype.open = open;
+        if (send) XHR.prototype.send = send;
+        if (abort) XHR.prototype.abort = abort;
+      }
+      this.httpNatives = null;
+      this.xhrMeta = /* @__PURE__ */ new WeakMap();
+    }
+    #installRealtime() {
+      if (this.realtimeNatives) return;
+      const NativeWebSocket = this.window.WebSocket;
+      const NativeEventSource = this.window.EventSource;
+      this.realtimeNatives = { WebSocket: NativeWebSocket, EventSource: NativeEventSource };
+      const runtime = this;
+      if (typeof NativeWebSocket === "function") {
+        let DiagnosticWebSocket = function(url, protocols) {
+          const socket = protocols === void 0 ? new NativeWebSocket(url) : new NativeWebSocket(url, protocols);
+          socket.addEventListener?.("open", () => runtime.#event("websocket.connect", {}));
+          socket.addEventListener?.("close", (event) => runtime.#event("websocket.disconnect", { code: event.code }));
+          socket.addEventListener?.("message", () => runtime.#event("websocket.message", {}));
+          return socket;
+        };
+        DiagnosticWebSocket.prototype = NativeWebSocket.prototype;
+        Object.setPrototypeOf(DiagnosticWebSocket, NativeWebSocket);
+        for (const key of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"]) {
+          if (key in NativeWebSocket) Object.defineProperty(DiagnosticWebSocket, key, { value: NativeWebSocket[key] });
+        }
+        this.window.WebSocket = DiagnosticWebSocket;
+      }
+      if (typeof NativeEventSource === "function") {
+        let DiagnosticEventSource = function(url, options) {
+          const source = new NativeEventSource(url, options);
+          source.addEventListener?.("open", () => runtime.#event("sse.connect", {}));
+          source.addEventListener?.("error", () => runtime.#event("sse.error", {}));
+          return source;
+        };
+        DiagnosticEventSource.prototype = NativeEventSource.prototype;
+        Object.setPrototypeOf(DiagnosticEventSource, NativeEventSource);
+        this.window.EventSource = DiagnosticEventSource;
+      }
+    }
+    #restoreRealtime() {
+      if (!this.realtimeNatives) return;
+      if (this.realtimeNatives.WebSocket) this.window.WebSocket = this.realtimeNatives.WebSocket;
+      if (this.realtimeNatives.EventSource) this.window.EventSource = this.realtimeNatives.EventSource;
+      this.realtimeNatives = null;
+    }
+    #event(type, data) {
+      if (this.diagnosticsEnabled) this.onDiagnosticEvent({ type, at: (/* @__PURE__ */ new Date()).toISOString(), ...data });
+    }
+    dispose() {
+      this.readEnabled = false;
+      this.diagnosticsEnabled = false;
+      this.#restoreRealtime();
+      this.#restoreHTTP();
+      this.readGate?.cancelAll("network-hooks-disposed");
+    }
+  };
+
+  // src/chat/diagnostics.js
+  var ChatDiagnostics = class {
+    constructor({ networkHooks, maximumEvents = 1e3 } = {}) {
+      this.networkHooks = networkHooks;
+      this.maximumEvents = maximumEvents;
+      this.active = false;
+      this.startedAt = null;
+      this.events = [];
+      this.dropped = 0;
+    }
+    record(event) {
+      if (!this.active) return;
+      if (this.events.length >= this.maximumEvents) {
+        this.events.shift();
+        this.dropped += 1;
+      }
+      this.events.push(event);
+    }
+    start() {
+      if (this.active) return false;
+      this.active = true;
+      this.startedAt = (/* @__PURE__ */ new Date()).toISOString();
+      this.events = [];
+      this.dropped = 0;
+      this.networkHooks.configureDiagnostics(true);
+      return true;
+    }
+    stop() {
+      if (!this.active) return false;
+      this.active = false;
+      this.networkHooks.configureDiagnostics(false);
+      return true;
+    }
+    snapshot() {
+      return {
+        schema: "vgen-nya.chat-diagnostics",
+        version: 1,
+        active: this.active,
+        startedAt: this.startedAt,
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        dropped: this.dropped,
+        privacy: { headers: false, bodies: false, tokens: false, cookies: false },
+        events: this.events.slice()
+      };
+    }
+    dispose() {
+      this.stop();
+      this.events = [];
+    }
+  };
+
+  // src/chat/stream-chat-adapter.js
+  var CHAT_SESSION_SELECTOR = ".str-chat__channel";
+  var MESSAGES_SURFACE_SELECTOR = ".str-chat__channel-list, .str-chat__channel";
+  var CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
+  var MESSAGE_SELECTOR = ".str-chat__message, .str-chat__message-simple";
+  var PREVIEW_SELECTOR = '.str-chat__channel-preview, [data-testid*="channel-preview"], [class*="ChatChannelListPreview"]';
+  function ownReactValue2(element2, prefix) {
+    const key = Object.getOwnPropertyNames(element2 || {}).find((name) => name.startsWith(prefix));
+    return key ? element2[key] : null;
+  }
+  function reactValue(element2, wanted) {
+    let node = element2;
+    for (let nodeDepth = 0; node && nodeDepth < 8; nodeDepth += 1, node = node.parentElement) {
+      let fiber = ownReactValue2(node, "__reactFiber$") || ownReactValue2(node, "__reactInternalInstance$");
+      const direct = ownReactValue2(node, "__reactProps$");
+      if (direct?.[wanted] !== void 0) return direct[wanted];
+      for (let depth = 0; fiber && depth < 45; depth += 1, fiber = fiber.return) {
+        for (const candidate of fiber.alternate ? [fiber, fiber.alternate] : [fiber]) {
+          const value = candidate.memoizedProps?.[wanted] ?? candidate.pendingProps?.[wanted];
+          if (value !== void 0) return value;
+        }
+      }
+    }
+    return null;
+  }
+  function channelCid(channel) {
+    return channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null);
+  }
+  function messageTime(message) {
+    const value = message?.created_at || message?.createdAt;
+    const time = Date.parse(value || "");
+    return Number.isFinite(time) ? time : null;
+  }
+  function readStatus(channel, message) {
+    const client = channel?.getClient?.() || channel?._client || channel?.client;
+    const selfId = client?.userID || client?.user?.id;
+    const senderId = message?.user?.id || message?.user_id;
+    const createdAt = messageTime(message);
+    if (!selfId || !senderId || createdAt === null) return { direction: "unknown", status: "unknown" };
+    const reads = Object.values(channel?.state?.read || {});
+    const reached = (entry) => {
+      if (entry?.last_read_message_id === message.id) return true;
+      const lastRead = Date.parse(entry?.last_read || entry?.last_read_at || "");
+      return Number.isFinite(lastRead) && lastRead >= createdAt;
+    };
+    if (senderId !== selfId) {
+      const own = reads.find((entry) => (entry.user?.id || entry.user_id) === selfId);
+      return { direction: "incoming", status: reached(own) ? "read" : "unread" };
+    }
+    const seen = reads.some((entry) => (entry.user?.id || entry.user_id) !== selfId && reached(entry));
+    return { direction: "outgoing", status: seen ? "read" : "unread" };
+  }
+  function messageFromElement(element2, channel) {
+    let message = reactValue(element2, "message");
+    if (message?.id) return message;
+    const id = element2.getAttribute?.("data-message-id") || element2.id;
+    if (id) message = channel?.state?.messages?.find?.((item) => item.id === id);
+    return message?.id ? message : null;
+  }
+  function memberIds(channel) {
+    const members = channel?.state?.members || channel?.data?.members || {};
+    return Array.isArray(members) ? members.map((item) => item.user?.id || item.user_id || item.id).filter(Boolean) : Object.keys(members);
+  }
+  function findChatTrigger(documentObject) {
+    const icons = documentObject.querySelectorAll?.('svg.chatIcon, [class*="chatIcon"]') || [];
+    for (const icon of icons) {
+      const button = icon.closest?.('button, [role="button"]');
+      if (button) return button;
+    }
+    return null;
+  }
+  function jumpButtons(surface) {
+    const roots = surface?.querySelectorAll?.('[class*="JumpToPresent"]') || [];
+    return [...new Set([...roots].map((root) => root.matches?.("button") ? root : root.closest?.("button") || root.querySelector?.("button")).filter(Boolean))];
+  }
+  function surfaceScore(node) {
+    if (!node || node.isConnected === false || node.hidden === true || node.getAttribute?.("aria-hidden") === "true") return -1;
+    const view = node.ownerDocument?.defaultView;
+    const style = view?.getComputedStyle?.(node);
+    if (style?.display === "none" || style?.visibility === "hidden") return -1;
+    const previews = node.querySelectorAll?.(PREVIEW_SELECTOR)?.length || 0;
+    const active = node.matches?.(CHAT_SESSION_SELECTOR) ? 1 : 0;
+    return previews * 100 + active + 1;
+  }
+  function findMessagesSurface(root) {
+    const candidates = [];
+    if (root?.matches?.(MESSAGES_SURFACE_SELECTOR)) candidates.push(root);
+    for (const node of root?.querySelectorAll?.(MESSAGES_SURFACE_SELECTOR) || []) candidates.push(node);
+    return [...new Set(candidates)].reduce((best, node) => surfaceScore(node) > surfaceScore(best) ? node : best, null);
+  }
+  function waitForOverlay(documentObject, MutationObserverClass, timeout = 8e3) {
+    const existing = findMessagesSurface(documentObject);
+    if (existing) return Promise.resolve(existing);
+    if (!MutationObserverClass || !documentObject.body) return Promise.reject(new Error("messages-overlay-unavailable"));
+    return new Promise((resolve, reject) => {
+      const probes = /* @__PURE__ */ new Map();
+      const releaseProbes = () => {
+        for (const observer2 of probes.values()) observer2.disconnect();
+        probes.clear();
+      };
+      const probe = (root) => {
+        if (!root?.querySelector || probes.has(root)) return;
+        const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR) || root.querySelector?.(CHAT_PORTAL_SELECTOR);
+        if (!likelyPortal) return;
+        const local = new MutationObserverClass(() => {
+          const overlay2 = findMessagesSurface(root);
+          if (overlay2) finish(resolve, overlay2);
+        });
+        local.observe(root, { childList: true, subtree: true });
+        probes.set(root, local);
+      };
+      const observer = new MutationObserverClass((records) => {
+        const overlay2 = findMessagesSurface(documentObject);
+        if (overlay2) finish(resolve, overlay2);
+        else for (const record of records || []) for (const node of record.addedNodes || []) probe(node);
+      });
+      const timer = globalThis.setTimeout(() => finish(reject, new Error("messages-overlay-timeout")), timeout);
+      const finish = (callback, value) => {
+        observer.disconnect();
+        releaseProbes();
+        globalThis.clearTimeout(timer);
+        callback(value);
+      };
+      observer.observe(documentObject.body, { childList: true });
+      for (const root of documentObject.querySelectorAll?.(CHAT_PORTAL_SELECTOR) || []) probe(root);
+    });
+  }
+  var StreamChatAdapter = class {
+    static overlaySelector = CHAT_SESSION_SELECTOR;
+    constructor(surface, { documentObject = surface?.ownerDocument || globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
+      this.surface = surface;
+      this.documentObject = documentObject;
+      this.MutationObserverClass = MutationObserverClass;
+    }
+    findChannel() {
+      const roots = [this.surface, ...this.surface?.querySelectorAll?.('.str-chat__channel, .str-chat, [class*="channelContainer"]') || []];
+      for (const root of roots.slice(0, 60)) {
+        const channel = reactValue(root, "channel");
+        if (channel && channelCid(channel)) return channel;
+      }
+      return null;
+    }
+    conversationId() {
+      return channelCid(this.findChannel());
+    }
+    refresh({ settings, readGate, onManualRead } = {}) {
+      const channel = this.findChannel();
+      const cid = channelCid(channel);
+      if (!channel || !cid) return { cid: null, messages: 0 };
+      const messages = this.surface.querySelectorAll?.(MESSAGE_SELECTOR) || [];
+      let decorated = 0;
+      for (const element2 of [...messages].slice(-500)) {
+        const message = messageFromElement(element2, channel);
+        if (!message) continue;
+        readGate?.observeLatest(cid, message);
+        this.#decorateMessage(element2, channel, message, settings, () => onManualRead?.(cid, channel));
+        decorated += 1;
+      }
+      this.#decorateReactions(settings);
+      this.#markLatestActions();
+      return { cid, messages: decorated };
+    }
+    #decorateMessage(element2, channel, message, settings, manualRead) {
+      const bubble = element2.querySelector?.(".str-chat__message-bubble") || element2;
+      const group = bubble.closest?.(".str-chat__message-bubble-group") || bubble.parentElement || element2;
+      const state = readStatus(channel, message);
+      const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps, settings.showStatusBar]);
+      if (element2.dataset.vgenNyaChatSignature === signature) return;
+      element2.dataset.vgenNyaChatSignature = signature;
+      let row = group.querySelector?.(":scope > .vgen-nya-chat-meta");
+      if (!row) {
+        row = this.documentObject.createElement("div");
+        row.className = "vgen-nya-chat-meta notranslate";
+        row.dataset.vgenNyaUi = "chat-meta";
+        row.translate = false;
+        const seen2 = this.documentObject.createElement("span");
+        seen2.className = "vgen-nya-chat-seen";
+        const time2 = this.documentObject.createElement("time");
+        time2.className = "vgen-nya-chat-time";
+        row.append(seen2, time2);
+        group.append(row);
+      }
+      const seen = row.querySelector(".vgen-nya-chat-seen");
+      if (seen) seen.textContent = settings.showSeen && state.direction === "outgoing" && state.status === "read" ? "[seen]" : "";
+      const time = row.querySelector("time");
+      const rawTime = message.created_at || message.createdAt;
+      if (time) {
+        time.textContent = settings.showTimestamps && rawTime ? new Date(rawTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+        if (rawTime) time.setAttribute("datetime", rawTime);
+      }
+      const hasStatus = state.status === "unread" || state.status === "read";
+      let bar = bubble.querySelector?.(":scope > .vgen-nya-state-bar");
+      if (settings.showStatusBar !== false && hasStatus && !bar) {
+        bar = this.documentObject.createElement("span");
+        bar.className = "vgen-nya-state-bar notranslate";
+        bar.dataset.vgenNyaUi = "chat-status-bar";
+        bar.translate = false;
+        bar.setAttribute("aria-hidden", "true");
+        bubble.append(bar);
+      }
+      if (bar && settings.showStatusBar !== false && hasStatus) {
+        bar.dataset.status = state.status;
+        bar.dataset.direction = state.direction;
+      } else bar?.remove();
+      let marker = bubble.querySelector?.(":scope > .vgen-nya-read-marker");
+      const canManualRead = settings.keepUnread && state.direction === "incoming" && state.status === "unread";
+      if (hasStatus && !marker) {
+        marker = this.documentObject.createElement("button");
+        marker.type = "button";
+        marker.className = "vgen-nya-read-marker notranslate";
+        marker.dataset.vgenNyaUi = "read-marker";
+        marker.addEventListener("pointerdown", (event) => event.stopPropagation());
+        marker.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (marker.dataset.manual === "true") manualRead();
+        });
+        bubble.append(marker);
+      }
+      if (marker && hasStatus) {
+        marker.dataset.status = state.status;
+        marker.dataset.direction = state.direction;
+        marker.dataset.manual = String(canManualRead);
+        marker.textContent = state.status === "unread" ? "●" : "✓";
+        marker.disabled = !canManualRead;
+        marker.title = canManualRead ? "未读 · 点击标记为已读" : state.direction === "outgoing" ? state.status === "read" ? "对方已读" : "对方未读" : state.status === "read" ? "我已读" : "未读";
+      } else marker?.remove();
+    }
+    #decorateReactions(settings) {
+      for (const reactions of this.surface.querySelectorAll?.('[data-testid="reaction-list"], .str-chat__message-reactions') || []) {
+        if (settings.compactReactions) reactions.dataset.vgenNyaCompactReactions = "true";
+        else delete reactions.dataset.vgenNyaCompactReactions;
+      }
+    }
+    #markLatestActions() {
+      for (const button of jumpButtons(this.surface)) button.dataset.vgenNyaNativeLatest = "true";
+    }
+    jumpToPresent() {
+      const button = jumpButtons(this.surface)[0];
+      if (!button) return false;
+      const handler = reactValue(button, "onClick");
+      if (typeof handler === "function") handler({ currentTarget: button, target: button });
+      else button.click?.();
+      return true;
+    }
+    cleanup() {
+      for (const selector of [".vgen-nya-chat-meta", ".vgen-nya-read-marker", ".vgen-nya-state-bar"]) {
+        for (const node of this.surface?.querySelectorAll?.(selector) || []) node.remove();
+      }
+      for (const node of this.surface?.querySelectorAll?.("[data-vgen-nya-compact-reactions]") || []) delete node.dataset.vgenNyaCompactReactions;
+    }
+    static async openUser(target, { documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver } = {}) {
+      const userID = String(target?.userID || target?.userId || "").trim();
+      if (!userID) throw new Error(target?.username ? "user-id-mapping-unavailable" : "invalid-user");
+      let overlay2 = findMessagesSurface(documentObject);
+      if (!overlay2) {
+        const trigger = findChatTrigger(documentObject);
+        if (!trigger) throw new Error("native-messages-trigger-unavailable");
+        trigger.click();
+        overlay2 = await waitForOverlay(documentObject, MutationObserverClass);
+      }
+      const previews = overlay2.querySelectorAll?.(PREVIEW_SELECTOR) || [];
+      for (const preview of previews) {
+        const channel2 = reactValue(preview, "channel");
+        if (!memberIds(channel2).includes(userID)) continue;
+        const nativeTarget = preview.matches?.('[class*="ChatChannelListPreview__Container"]') ? preview : preview.querySelector?.('[class*="ChatChannelListPreview__Container"]');
+        const select2 = reactValue(preview, "setActiveChannel") || reactValue(preview, "onSelect");
+        if (nativeTarget) nativeTarget.click?.();
+        else if (typeof select2 === "function") await select2(channel2);
+        else preview.click?.();
+        return { opened: true, cid: channelCid(channel2), existing: true };
+      }
+      const root = overlay2.querySelector?.(".str-chat") || overlay2;
+      const activeChannel = reactValue(root, "channel");
+      if (memberIds(activeChannel).includes(userID)) {
+        return { opened: true, cid: channelCid(activeChannel), existing: true };
+      }
+      const client = reactValue(root, "client") || activeChannel?.getClient?.();
+      if (typeof client?.queryChannels !== "function") throw new Error("stream-client-unavailable");
+      const selfId = String(client.userID || client.user?.id || "").trim();
+      const members = selfId ? { $eq: [selfId, userID] } : { $in: [userID] };
+      const channels = await client.queryChannels({ type: "messaging", members }, [{ last_message_at: -1 }], { state: true, watch: true });
+      const channel = channels.find((item) => memberIds(item).includes(userID));
+      if (!channel) throw new Error("existing-conversation-unavailable");
+      const select = reactValue(root, "setActiveChannel") || reactValue(root, "onSelect");
+      if (typeof select !== "function") throw new Error("native-channel-selector-unavailable");
+      await select(channel);
+      return { opened: true, cid: channelCid(channel), existing: true };
+    }
+  };
+
+  // src/chat/chat-assistant.js
+  var CHAT_PORTAL_SELECTOR2 = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
+  var CHAT_CSS = `
+.vgen-nya-chat-meta{display:flex!important;align-items:center;justify-content:space-between;gap:20px;width:100%;padding-top:3px;font:11px/18px system-ui,sans-serif;opacity:.72;user-select:text;pointer-events:auto}
+.vgen-nya-chat-time{margin-left:auto;white-space:nowrap}
+.str-chat__message-bubble:has(>.vgen-nya-read-marker),.str-chat__message-bubble:has(>.vgen-nya-state-bar){position:relative!important;overflow:visible!important}
+.str-chat__message-bubble:has(>.vgen-nya-state-bar){display:flex!important;flex-direction:column!important;height:auto!important}
+.vgen-nya-state-bar{position:static!important;display:block!important;flex:0 0 2px!important;width:38px!important;height:2px!important;min-height:2px!important;margin-left:auto!important;border-radius:999px;background:#3bdfbc;opacity:.82;pointer-events:none}
+.vgen-nya-state-bar[data-status="unread"]{background:#ff6476}.vgen-nya-state-bar[data-direction="outgoing"]{order:-1;margin-top:1px;margin-bottom:4px}.vgen-nya-state-bar[data-direction="incoming"]{order:2147483647;margin-top:4px;margin-bottom:1px}
+.vgen-nya-read-marker{position:absolute!important;right:-8px;z-index:30;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:transparent;color:#3bdfbc;font:bold 16px/20px system-ui;filter:drop-shadow(0 1px 1px #0007)}
+.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover,.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
+[data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
+[data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
+`;
+  var ChatAssistantSession = class {
+    constructor({ surface, repository, readGate, adapter, MutationObserverClass = globalThis.MutationObserver } = {}) {
+      this.surface = surface;
+      this.repository = repository;
+      this.readGate = readGate;
+      this.adapter = adapter;
+      this.MutationObserverClass = MutationObserverClass;
+      this.observer = null;
+      this.cid = null;
+      this.mounted = false;
+    }
+    mount() {
+      if (this.mounted) return false;
+      this.mounted = true;
+      this.refresh();
+      if (this.MutationObserverClass) {
+        this.observer = new this.MutationObserverClass((records) => {
+          const onlyOwnInsertions = records.length > 0 && records.every((record) => (record.addedNodes?.length || 0) > 0 && [...record.addedNodes].every((node) => node.dataset?.vgenNyaUi));
+          if (onlyOwnInsertions) return;
+          this.refresh();
+        });
+        this.observer.observe(this.surface, { childList: true, subtree: true });
+      }
+      return true;
+    }
+    refresh() {
+      if (!this.mounted) return null;
+      const settings = this.repository.read().chatSettings;
+      const result = this.adapter.refresh({
+        settings,
+        readGate: this.readGate,
+        onManualRead: (cid, channel) => this.readGate.manualRelease(cid, (body) => channel.markRead?.(body))
+      });
+      this.cid = result?.cid || null;
+      return result;
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.observer?.disconnect();
+      this.observer = null;
+      this.adapter.cleanup?.();
+      this.cid = null;
+      this.mounted = false;
+      return true;
+    }
+  };
+  var ChatAssistantRuntime = class {
+    constructor({ repository, readGate, networkHooks, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory } = {}) {
+      this.repository = repository;
+      this.readGate = readGate;
+      this.networkHooks = networkHooks;
+      this.documentObject = documentObject;
+      this.MutationObserverClass = MutationObserverClass;
+      this.adapterFactory = adapterFactory || ((surface) => new StreamChatAdapter(surface, { documentObject, MutationObserverClass }));
+      this.sessions = /* @__PURE__ */ new Map();
+      this.probes = /* @__PURE__ */ new Map();
+      this.portalObserver = null;
+      this.unsubscribe = null;
+      this.style = null;
+      this.mounted = false;
+    }
+    mount() {
+      if (this.mounted) return false;
+      this.mounted = true;
+      this.unsubscribe = this.repository.subscribe(() => this.#sync());
+      this.#sync();
+      return true;
+    }
+    #sync() {
+      const settings = this.repository.read().chatSettings;
+      this.readGate.configure(settings);
+      this.networkHooks.configureRead(settings.enabled && settings.keepUnread);
+      if (settings.enabled) this.#start();
+      else this.#stop();
+      for (const session of this.sessions.values()) session.refresh();
+    }
+    #start() {
+      if (this.portalObserver || !this.documentObject?.body) return;
+      this.#installStyle();
+      this.scan(this.documentObject);
+      if (this.MutationObserverClass) {
+        this.portalObserver = new this.MutationObserverClass((records) => {
+          for (const record of records) {
+            for (const node of record.addedNodes || []) if (!this.scan(node)) this.#probe(node);
+            for (const node of record.removedNodes || []) this.#releaseRemoved(node);
+          }
+        });
+        this.portalObserver.observe(this.documentObject.body, { childList: true });
+      }
+    }
+    #stop() {
+      this.portalObserver?.disconnect();
+      this.portalObserver = null;
+      for (const root of [...this.probes.keys()]) this.#releaseProbe(root);
+      for (const session of this.sessions.values()) session.unmount();
+      this.sessions.clear();
+      this.style?.remove();
+      this.style = null;
+    }
+    #installStyle() {
+      if (this.style || !this.documentObject?.createElement) return;
+      this.style = this.documentObject.createElement("style");
+      this.style.dataset.vgenNyaUi = "chat-style";
+      this.style.textContent = CHAT_CSS;
+      (this.documentObject.head || this.documentObject.body).append(this.style);
+    }
+    scan(root) {
+      const selector = StreamChatAdapter.overlaySelector;
+      const candidates = [.../* @__PURE__ */ new Set([
+        ...root?.matches?.(selector) ? [root] : [],
+        ...root?.querySelectorAll?.(selector) || []
+      ])];
+      const surfaces = [...new Set(candidates.map((candidate) => this.#sessionSurface(candidate)))];
+      let mounted = 0;
+      for (const surface of surfaces) {
+        if (this.sessions.has(surface) || !surface.isConnected) continue;
+        if ([...this.sessions.keys()].some((existing) => existing.contains?.(surface))) continue;
+        const adapter = this.adapterFactory(surface);
+        const session = new ChatAssistantSession({ surface, repository: this.repository, readGate: this.readGate, adapter, MutationObserverClass: this.MutationObserverClass });
+        session.mount();
+        this.sessions.set(surface, session);
+        mounted += 1;
+      }
+      return mounted;
+    }
+    #sessionSurface(channelRoot) {
+      let node = channelRoot;
+      for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+        if (String(node.className || "").includes("ChatModal__Container")) return node;
+      }
+      return channelRoot;
+    }
+    #probe(root) {
+      if (!this.MutationObserverClass || !root?.querySelectorAll || this.probes.has(root)) return;
+      const likelyPortal = root.matches?.(CHAT_PORTAL_SELECTOR2) || root.querySelector?.(CHAT_PORTAL_SELECTOR2);
+      if (!likelyPortal) return;
+      const observer = new this.MutationObserverClass(() => {
+        if (!root.isConnected || this.scan(root)) this.#releaseProbe(root);
+      });
+      observer.observe(root, { childList: true, subtree: true });
+      const timer = globalThis.setTimeout(() => this.#releaseProbe(root), 1e4);
+      this.probes.set(root, { observer, timer });
+    }
+    #releaseProbe(root) {
+      const probe = this.probes.get(root);
+      if (!probe) return;
+      probe.observer.disconnect();
+      globalThis.clearTimeout(probe.timer);
+      this.probes.delete(root);
+    }
+    #releaseRemoved(root) {
+      for (const probeRoot of [...this.probes.keys()]) if (probeRoot === root || root.contains?.(probeRoot) || !probeRoot.isConnected) this.#releaseProbe(probeRoot);
+      for (const [surface, session] of this.sessions) {
+        if (surface === root || root.contains?.(surface) || !surface.isConnected) {
+          session.unmount();
+          this.sessions.delete(surface);
+        }
+      }
+    }
+    activate() {
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+      this.#stop();
+      this.networkHooks.configureRead(false);
+      this.readGate.cancelAll("chat-runtime-unmounted");
+      this.mounted = false;
+      return true;
+    }
+    dispose() {
+      this.unmount();
+    }
+  };
+  var ChatService = class {
+    constructor({ documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, openUser = StreamChatAdapter.openUser } = {}) {
+      this.documentObject = documentObject;
+      this.MutationObserverClass = MutationObserverClass;
+      this.openUserAdapter = openUser;
+    }
+    openUser(target) {
+      return this.openUserAdapter(target, { documentObject: this.documentObject, MutationObserverClass: this.MutationObserverClass });
+    }
+  };
+
+  // src/clients/frequent-clients.js
+  var PROFILE_CACHE_MS = 6 * 60 * 60 * 1e3;
+  var LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
+  var MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
+  var CLIENTS_CSS = `
+.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients[data-collapsed="true"]{min-height:0}
+.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{border:0;border-radius:5px;background:var(--nya-clients-control);color:inherit;cursor:pointer}
+.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
+.vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;font-size:10px;pointer-events:none}
+.vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;margin-left:10px;color:inherit;text-decoration:none}.vgen-nya-clients__primary{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{opacity:.7;font-size:10px}.vgen-nya-clients__notice{margin-left:5px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700}.vgen-nya-clients__empty{padding:10px;opacity:.75}
+@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
+`;
+  var latestDate = (items, fields) => (items || []).reduce((latest, item) => {
+    const value = fields.map((field) => item?.[field]).find(Boolean);
+    return value && (!latest || Date.parse(value) > Date.parse(latest)) ? value : latest;
+  }, "");
+  var make3 = (documentObject, tag, className = "", text = "") => {
+    const node = documentObject.createElement(tag);
+    node.className = className;
+    node.textContent = text;
+    return node;
+  };
+  var abortError = () => Object.assign(new Error("Frequent Client refresh aborted"), { name: "AbortError" });
+  var FrequentClientsRuntime = class {
+    constructor({ repository, chat, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, AbortControllerClass = documentObject?.defaultView?.AbortController || globalThis.AbortController, fetchImpl = globalThis.fetch, hostResolver } = {}) {
+      this.repository = repository;
+      this.chat = chat;
+      this.documentObject = documentObject;
+      this.MutationObserverClass = MutationObserverClass;
+      this.AbortControllerClass = AbortControllerClass;
+      this.fetchImpl = fetchImpl;
+      this.hostResolver = hostResolver || ((root) => {
+        const legacyFooter = root?.matches?.(LEGACY_FOOTER_SELECTOR) ? root : root?.querySelector?.(LEGACY_FOOTER_SELECTOR);
+        if (legacyFooter?.parentElement) return { parent: legacyFooter.parentElement, before: legacyFooter };
+        const modernSidebar = root?.matches?.(MODERN_SIDEBAR_SELECTOR) ? root : root?.querySelector?.(MODERN_SIDEBAR_SELECTOR);
+        const modernFooter = modernSidebar?.querySelector?.(":scope > .sidebarFooter");
+        return modernSidebar ? { parent: modernSidebar, before: modernFooter || null } : null;
+      });
+      this.panel = null;
+      this.host = null;
+      this.observer = null;
+      this.hostObserver = null;
+      this.probes = /* @__PURE__ */ new Map();
+      this.settleTimer = null;
+      this.unsubscribe = null;
+      this.refreshing = false;
+      this.refreshOperation = 0;
+      this.abortController = null;
+      this.mounted = false;
+      this.style = null;
+    }
+    mount() {
+      if (this.mounted) return false;
+      this.mounted = true;
+      this.abortController = this.AbortControllerClass ? new this.AbortControllerClass() : null;
+      this.style = this.documentObject.createElement?.("style") || null;
+      if (this.style) {
+        this.style.dataset.vgenNyaUi = "frequent-clients-style";
+        this.style.textContent = CLIENTS_CSS;
+        (this.documentObject.head || this.documentObject.body)?.append(this.style);
+      }
+      this.unsubscribe = this.repository.subscribe(({ domain }) => {
+        if (domain.startsWith("clients")) this.sync();
+      });
+      this.sync();
+      if (this.MutationObserverClass && this.documentObject?.body) {
+        this.observer = new this.MutationObserverClass((records) => {
+          for (const record of records) {
+            for (const node of record.removedNodes || []) {
+              if (node === this.host || node.contains?.(this.host)) this.#removePanel();
+              for (const root of this.probes.keys()) if (node === root || node.contains?.(root)) this.#releaseProbe(root);
+            }
+            for (const node of record.addedNodes || []) if (!this.panel) this.#probe(node);
+          }
+        });
+        this.observer.observe(this.documentObject.body, { childList: true });
+        for (const node of this.documentObject.body.children || []) if (!this.panel) this.#probe(node);
+        if (!this.panel) this.settleTimer = globalThis.setTimeout(() => {
+          this.settleTimer = null;
+          this.sync();
+        }, 1500);
+      }
+      return true;
+    }
+    activate() {
+    }
+    sync() {
+      const settings = this.repository.read().clientsSettings;
+      if (!settings.enabled) {
+        this.#removePanel();
+        return;
+      }
+      if (this.panel?.isConnected === false || this.host?.isConnected === false || this.host && !this.host.parentElement) this.#removePanel();
+      if (!this.panel) this.#mountIn(this.documentObject);
+      if (this.panel) this.render();
+    }
+    #mountIn(root) {
+      const mount = this.hostResolver(root);
+      if (!mount || this.panel) return false;
+      const host = mount.parent || mount;
+      const before = mount.before || null;
+      this.host = host;
+      this.panel = make3(this.documentObject, "section", "vgen-nya-clients notranslate");
+      this.panel.dataset.vgenNyaUi = "frequent-clients";
+      this.panel.translate = false;
+      this.panel.setAttribute("aria-label", "常用访问");
+      this.panel.addEventListener("click", this.#onClick);
+      this.panel.addEventListener("dragstart", this.#onDragStart);
+      this.panel.addEventListener("dragover", this.#onDragOver);
+      this.panel.addEventListener("drop", this.#onDrop);
+      if (before && typeof host.insertBefore === "function") host.insertBefore(this.panel, before);
+      else host.append(this.panel);
+      const lifecycleRoot = host.parentElement || host;
+      if (this.MutationObserverClass && lifecycleRoot) {
+        this.hostObserver = new this.MutationObserverClass(() => {
+          if (this.panel?.isConnected !== false && this.host?.isConnected !== false && this.host?.parentElement) return;
+          this.#removePanel();
+          this.sync();
+        });
+        this.hostObserver.observe(lifecycleRoot, { childList: true });
+      }
+      if (this.settleTimer !== null) globalThis.clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+      this.#releaseProbes();
+      this.render();
+      void this.refreshStale();
+      return true;
+    }
+    #probe(root) {
+      if (!root?.querySelector || this.panel || this.probes.has(root)) return false;
+      if (this.#mountIn(root)) return true;
+      if (!this.MutationObserverClass || this.probes.size >= 12) return false;
+      const observer = new this.MutationObserverClass(() => {
+        if (root.isConnected === false) this.#releaseProbe(root);
+        else if (this.#mountIn(root)) this.#releaseProbes();
+      });
+      observer.observe(root, { childList: true, subtree: true });
+      const timer = globalThis.setTimeout(() => this.#releaseProbe(root), 8e3);
+      this.probes.set(root, { observer, timer });
+      return false;
+    }
+    #releaseProbe(root) {
+      const entry = this.probes.get(root);
+      if (!entry) return;
+      entry.observer.disconnect();
+      globalThis.clearTimeout(entry.timer);
+      this.probes.delete(root);
+    }
+    #releaseProbes() {
+      for (const root of [...this.probes.keys()]) this.#releaseProbe(root);
+    }
+    render() {
+      if (!this.panel) return;
+      const { clients, clientsSettings } = this.repository.read();
+      this.panel.dataset.collapsed = String(clientsSettings.collapsed);
+      this.panel.style.cssText = `--vgen-nya-clients-min-height:${clientsSettings.minHeight}px;--vgen-nya-clients-row-height:${clientsSettings.rowHeight}px`;
+      this.panel.replaceChildren();
+      const header = make3(this.documentObject, "header", "vgen-nya-clients__header");
+      header.append(
+        make3(this.documentObject, "strong", "", "常用访问"),
+        this.#button("refresh", "↻", "刷新资料"),
+        this.#button("collapse", clientsSettings.collapsed ? "＋" : "－", clientsSettings.collapsed ? "展开" : "折叠")
+      );
+      this.panel.append(header);
+      const list = make3(this.documentObject, "div", "vgen-nya-clients__list");
+      list.hidden = clientsSettings.collapsed;
+      if (!clients.length) list.append(make3(this.documentObject, "p", "vgen-nya-clients__empty", "在设置 → 常用访问中添加客户"));
+      clients.forEach((client, index) => list.append(this.#row(client, index)));
+      this.panel.append(list);
+    }
+    #button(action, text, title) {
+      const button = make3(this.documentObject, "button", "", text);
+      button.type = "button";
+      button.dataset.action = action;
+      button.title = title;
+      return button;
+    }
+    #row(client, index) {
+      const row = make3(this.documentObject, "div", "vgen-nya-clients__row");
+      row.dataset.clientId = client.id;
+      row.dataset.index = String(index);
+      row.draggable = true;
+      if (client.bannerURL) row.style.backgroundImage = `url(${JSON.stringify(client.bannerURL)})`;
+      const quick = this.#button("quick-chat", "", `私信 @${client.username}`);
+      quick.className = "vgen-nya-clients__avatar";
+      quick.dataset.clientId = client.id;
+      const avatar = make3(this.documentObject, "img");
+      avatar.alt = "";
+      avatar.src = client.avatarURL || "";
+      const badge = make3(this.documentObject, "span", "vgen-nya-clients__chat-badge", "💬");
+      badge.setAttribute("aria-hidden", "true");
+      quick.append(avatar, badge);
+      quick.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void this.#openQuickChat(client.id, quick);
+      });
+      const text = make3(this.documentObject, "a", "vgen-nya-clients__link");
+      text.href = client.url;
+      text.target = "_blank";
+      text.rel = "noopener noreferrer";
+      const primary = make3(this.documentObject, "span", "vgen-nya-clients__primary", client.note || client.displayName || `@${client.username}`);
+      const secondary = make3(this.documentObject, "span", "vgen-nya-clients__secondary", `@${client.username}`);
+      const updates = [client.lastServiceUpdate && `服务 ${this.#date(client.lastServiceUpdate)}`, client.lastPortfolioUpdate && `作品 ${this.#date(client.lastPortfolioUpdate)}`].filter(Boolean).join(" · ");
+      const detail = make3(this.documentObject, "span", "vgen-nya-clients__updates", updates);
+      text.append(primary, secondary, detail);
+      if (client.announcementMessage) {
+        const notice = make3(this.documentObject, "span", "vgen-nya-clients__notice", `通知：${client.announcementMessage}`);
+        notice.title = client.announcementMessage;
+        row.append(quick, text, notice);
+      } else row.append(quick, text);
+      return row;
+    }
+    #date(value) {
+      const date = new Date(value);
+      return Number.isFinite(+date) ? date.toLocaleDateString([], { month: "numeric", day: "numeric" }) : "—";
+    }
+    #onClick = async (event) => {
+      const button = event.target?.closest?.("button[data-action]");
+      if (!button) return;
+      if (button.dataset.action === "collapse") {
+        const next = this.repository.read().clientsSettings;
+        next.collapsed = !next.collapsed;
+        this.repository.writeClientsSettings(next);
+      }
+      if (button.dataset.action === "refresh") await this.refreshStale(true);
+    };
+    async #openQuickChat(clientId, button) {
+      if (button.disabled) return;
+      button.disabled = true;
+      const originalTitle = button.title;
+      button.dataset.vgenNyaQuickChatStatus = "loading";
+      delete button.dataset.vgenNyaQuickChatError;
+      try {
+        let client = this.repository.read().clients.find((item) => item.id === clientId);
+        if (!client?.userID) {
+          await this.refreshClient(client?.id, true);
+          client = this.repository.read().clients.find((item) => item.id === clientId);
+        }
+        await this.chat.openUser(client);
+        button.dataset.vgenNyaQuickChatStatus = "opened";
+      } catch (error) {
+        button.dataset.vgenNyaQuickChatStatus = "error";
+        button.dataset.vgenNyaQuickChatError = String(error?.message || error || "quick-chat-failed").slice(0, 120);
+        button.title = `${originalTitle} · 无法打开：${button.dataset.vgenNyaQuickChatError}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+    #onDragStart = (event) => {
+      const row = event.target?.closest?.("[data-client-id]");
+      if (row) event.dataTransfer?.setData("text/plain", row.dataset.clientId);
+    };
+    #onDragOver = (event) => {
+      if (event.target?.closest?.("[data-client-id]")) event.preventDefault();
+    };
+    #onDrop = (event) => {
+      const target = event.target?.closest?.("[data-client-id]");
+      const sourceId = event.dataTransfer?.getData("text/plain");
+      if (!target || !sourceId || sourceId === target.dataset.clientId) return;
+      event.preventDefault();
+      const clients = this.repository.read().clients;
+      const from = clients.findIndex((client) => client.id === sourceId);
+      const to = clients.findIndex((client) => client.id === target.dataset.clientId);
+      if (from >= 0 && to >= 0) this.repository.reorderClient(from, to);
+    };
+    async refreshStale(force = false) {
+      if (this.refreshing || !this.mounted) return;
+      const operation = ++this.refreshOperation;
+      const signal = this.abortController?.signal;
+      const clients = this.repository.read().clients;
+      const pending = clients.filter((client) => force || Date.now() - client.profileFetchedAt >= PROFILE_CACHE_MS);
+      this.refreshing = true;
+      try {
+        for (let index = 0; index < pending.length; index += 3) {
+          if (signal?.aborted) break;
+          await Promise.allSettled(pending.slice(index, index + 3).map((client) => this.refreshClient(client.id, force, { signal })));
+        }
+      } finally {
+        if (this.refreshOperation === operation) this.refreshing = false;
+      }
+    }
+    async refreshClient(id, force = false, { signal = this.abortController?.signal } = {}) {
+      const clients = this.repository.read().clients;
+      const client = clients.find((item) => item.id === id);
+      if (!client || !force && Date.now() - client.profileFetchedAt < PROFILE_CACHE_MS) return client;
+      const api = async (path) => {
+        if (signal?.aborted) throw abortError();
+        const response = await this.fetchImpl(`https://api.vgen.co${path}`, { headers: { "v-client-id": "vgen-web" }, signal });
+        if (!response.ok) throw new Error(`VGen API ${response.status}`);
+        return response.json();
+      };
+      const profile = await api(`/user/${encodeURIComponent(client.username)}`);
+      if (signal?.aborted) throw abortError();
+      if (!profile?.userID) throw new Error("user-profile-unavailable");
+      const [services, showcases] = await Promise.allSettled([
+        api(`/commission/services/${encodeURIComponent(profile.userID)}`),
+        api(`/discoverability/portfolio/showcases/${encodeURIComponent(profile.userID)}?limit=1&verifyAge=true`)
+      ]);
+      if (signal?.aborted) throw abortError();
+      Object.assign(client, {
+        userID: String(profile.userID),
+        username: String(profile.username || client.username),
+        url: `https://vgen.co/${encodeURIComponent(profile.username || client.username)}`,
+        displayName: String(profile.displayName || ""),
+        avatarURL: String(profile.avatarURL || ""),
+        bannerURL: String(profile.bannerURL || ""),
+        announcementMessage: String(profile.announcement?.message || "").slice(0, 500),
+        announcementModified: String(profile.announcement?.modified || ""),
+        lastServiceUpdate: services.status === "fulfilled" ? latestDate(services.value, ["modified", "created"]) : client.lastServiceUpdate,
+        lastPortfolioUpdate: showcases.status === "fulfilled" ? String(showcases.value?.showcases?.[0]?.modified || showcases.value?.showcases?.[0]?.created || "") : client.lastPortfolioUpdate,
+        serviceFetchFailed: services.status === "rejected",
+        portfolioFetchFailed: showcases.status === "rejected",
+        profileFetchedAt: Date.now()
+      });
+      this.repository.writeClients(clients);
+      return client;
+    }
+    #removePanel() {
+      if (!this.panel) return;
+      this.hostObserver?.disconnect();
+      this.hostObserver = null;
+      this.panel.removeEventListener("click", this.#onClick);
+      this.panel.removeEventListener("dragstart", this.#onDragStart);
+      this.panel.removeEventListener("dragover", this.#onDragOver);
+      this.panel.removeEventListener("drop", this.#onDrop);
+      this.panel.remove();
+      this.panel = null;
+      this.host = null;
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.refreshOperation += 1;
+      this.refreshing = false;
+      this.abortController?.abort();
+      this.abortController = null;
+      this.observer?.disconnect();
+      this.observer = null;
+      this.hostObserver?.disconnect();
+      this.hostObserver = null;
+      if (this.settleTimer !== null) globalThis.clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+      this.#releaseProbes();
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+      this.#removePanel();
+      this.style?.remove();
+      this.style = null;
+      this.mounted = false;
+      return true;
+    }
+    dispose() {
+      this.unmount();
+    }
+  };
+
+  // src/settings/chat-settings.js
+  function make4(documentObject, tag, attributes = {}, text = "") {
+    const node = documentObject.createElement(tag);
+    for (const [key, value] of Object.entries(attributes)) {
+      if (key === "dataset") Object.assign(node.dataset, value);
+      else if (key in node) node[key] = value;
+      else node.setAttribute(key, value);
+    }
+    if (text) node.textContent = text;
+    return node;
+  }
+  function check(documentObject, label, checked, setting) {
+    const row = make4(documentObject, "label", { className: "vgen-nya-settings__check" });
+    row.append(make4(documentObject, "input", { type: "checkbox", checked, dataset: { setting } }), documentObject.createTextNode(` ${label}`));
+    return row;
+  }
+  function renderChat(repository, fields) {
+    return ({ documentObject, body, use }) => {
+      const render = () => {
+        const settings = repository.read().chatSettings;
+        body.replaceChildren(...fields.map(([key, label]) => check(documentObject, label, settings[key], key)));
+      };
+      const onChange = (event) => {
+        const key = event.target?.dataset?.setting;
+        if (!key) return;
+        const settings = repository.read().chatSettings;
+        settings[key] = event.target.checked;
+        repository.writeChatSettings(settings);
+      };
+      body.addEventListener("change", onChange);
+      use(() => body.removeEventListener("change", onChange));
+      render();
+    };
+  }
+  function renderClientPanel(repository) {
+    return ({ documentObject, body, use }) => {
+      const render = () => {
+        const settings = repository.read().clientsSettings;
+        body.replaceChildren(
+          check(documentObject, "启用常用访问面板", settings.enabled, "enabled"),
+          check(documentObject, "默认折叠", settings.collapsed, "collapsed"),
+          make4(documentObject, "label", {}, "面板最小高度 "),
+          make4(documentObject, "input", { type: "number", min: 120, max: 520, value: settings.minHeight, dataset: { setting: "minHeight" } }),
+          make4(documentObject, "label", {}, " 行高 "),
+          make4(documentObject, "input", { type: "number", min: 42, max: 88, value: settings.rowHeight, dataset: { setting: "rowHeight" } })
+        );
+      };
+      const onChange = (event) => {
+        const key = event.target?.dataset?.setting;
+        if (!key) return;
+        const settings = repository.read().clientsSettings;
+        settings[key] = event.target.type === "checkbox" ? event.target.checked : Number(event.target.value);
+        repository.writeClientsSettings(settings);
+      };
+      body.addEventListener("change", onChange);
+      use(() => body.removeEventListener("change", onChange));
+      render();
+    };
+  }
+  function renderClientManager(repository) {
+    return ({ documentObject, body, use }) => {
+      const render = () => {
+        body.replaceChildren();
+        repository.read().clients.forEach((client, index, clients) => {
+          const row = make4(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
+          const note = make4(documentObject, "input", { value: client.note, placeholder: `@${client.username}`, dataset: { role: "note", id: client.id } });
+          row.append(
+            note,
+            make4(documentObject, "button", { type: "button", disabled: index === 0, dataset: { action: "up", index } }, "↑"),
+            make4(documentObject, "button", { type: "button", disabled: index === clients.length - 1, dataset: { action: "down", index } }, "↓"),
+            make4(documentObject, "button", { type: "button", dataset: { action: "delete", id: client.id } }, "删除")
+          );
+          body.append(row);
+        });
+        const add = make4(documentObject, "div", { className: "vgen-nya-settings__toolbar" });
+        add.append(
+          make4(documentObject, "input", { placeholder: "VGen username", dataset: { role: "username" } }),
+          make4(documentObject, "input", { placeholder: "备注（可选）", dataset: { role: "new-note" } }),
+          make4(documentObject, "button", { type: "button", dataset: { action: "add" } }, "添加")
+        );
+        body.append(add);
+      };
+      const onChange = (event) => {
+        if (event.target?.dataset?.role !== "note") return;
+        const clients = repository.read().clients;
+        const client = clients.find((item) => item.id === event.target.dataset.id);
+        if (client) {
+          client.note = event.target.value;
+          repository.writeClients(clients);
+        }
+      };
+      const onClick = (event) => {
+        const button = event.target?.closest?.("button[data-action]");
+        if (!button) return;
+        if (button.dataset.action === "delete") repository.removeClient(button.dataset.id);
+        if (button.dataset.action === "up" || button.dataset.action === "down") {
+          const index = Number(button.dataset.index);
+          repository.reorderClient(index, button.dataset.action === "up" ? index - 1 : index + 1);
+        }
+        if (button.dataset.action === "add") {
+          const username = String(body.querySelector('[data-role="username"]')?.value || "").trim().replace(/^@/, "");
+          const note = String(body.querySelector('[data-role="new-note"]')?.value || "").trim();
+          if (!/^[A-Za-z0-9_.-]+$/.test(username)) throw new TypeError("Invalid VGen username");
+          const clients = repository.read().clients;
+          clients.push({ id: globalThis.crypto?.randomUUID?.() || `client-${Date.now()}`, username, note, createdAt: Date.now() });
+          repository.writeClients(clients);
+        }
+        render();
+      };
+      body.addEventListener("change", onChange);
+      body.addEventListener("click", onClick);
+      use(() => body.removeEventListener("change", onChange));
+      use(() => body.removeEventListener("click", onClick));
+      render();
+    };
+  }
+  function renderDiagnostics(diagnostics) {
+    return ({ documentObject, body, use }) => {
+      const status = make4(documentObject, "p");
+      const render = () => {
+        status.textContent = diagnostics.active ? `运行中 · ${diagnostics.events.length} events` : "已停止；无诊断网络 hook";
+      };
+      const start2 = make4(documentObject, "button", { type: "button", dataset: { action: "start" } }, "启动诊断");
+      const stop = make4(documentObject, "button", { type: "button", dataset: { action: "stop" } }, "停止诊断");
+      const exportButton = make4(documentObject, "button", { type: "button", dataset: { action: "export" } }, "导出报告");
+      body.replaceChildren(status, start2, stop, exportButton);
+      const onClick = (event) => {
+        const action = event.target?.dataset?.action;
+        if (action === "start") diagnostics.start();
+        if (action === "stop") diagnostics.stop();
+        if (action === "export") {
+          const blob = new Blob([JSON.stringify(diagnostics.snapshot(), null, 2)], { type: "application/json;charset=utf-8" });
+          const view = documentObject.defaultView || globalThis;
+          const url = view.URL.createObjectURL(blob);
+          const anchor = make4(documentObject, "a", { href: url, download: `vgen-nya-chat-diagnostics-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.json` });
+          body.append(anchor);
+          anchor.click();
+          anchor.remove();
+          view.setTimeout(() => view.URL.revokeObjectURL(url), 1e3);
+        }
+        render();
+      };
+      body.addEventListener("click", onClick);
+      use(() => body.removeEventListener("click", onClick));
+      render();
+    };
+  }
+  function createChatSettingsNavigation(repository, diagnostics, baseNavigation) {
+    return baseNavigation.map((item) => {
+      if (item.id === "chat") return {
+        ...item,
+        tabs: [
+          { id: "display", label: "聊天显示", sections: [{ id: "display", title: "Seen / 时间戳 / Reaction", render: renderChat(repository, [
+            ["enabled", "启用 Chat Assistant"],
+            ["showSeen", "显示 seen"],
+            ["showTimestamps", "显示时间戳"],
+            ["showStatusBar", "显示气泡状态长条"],
+            ["compactReactions", "紧凑 Reaction"]
+          ]) }] },
+          { id: "read-control", label: "已读控制", sections: [{ id: "read-control", title: "服务器已读边界", render: renderChat(repository, [
+            ["keepUnread", "保持服务器未读，手动释放"],
+            ["reactionMarkRead", "Reaction 成功后标记已读"]
+          ]) }] }
+        ]
+      };
+      if (item.id === "clients") return {
+        ...item,
+        tabs: [
+          { id: "panel", label: "面板设置", sections: [{ id: "panel", title: "显示与尺寸", render: renderClientPanel(repository) }] },
+          { id: "management", label: "客户管理", sections: [{ id: "management", title: "新增 / 备注 / 排序 / 删除", render: renderClientManager(repository) }] }
+        ]
+      };
+      if (item.id === "developer") return {
+        ...item,
+        tabs: [{ id: "diagnostics", label: "Diagnostics", sections: [{ id: "diagnostics", title: "Chat 网络诊断", render: renderDiagnostics(diagnostics) }] }]
+      };
+      return item;
+    });
+  }
+
   // src/index.js
-  function createVGenNyaCore({ storageDriver, gm = globalThis } = {}) {
+  function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow: pageWindow2 = gm } = {}) {
     const store = new ConfigStore(storageDriver || createGMStorageDriver(gm));
     const modules = new ModuleManager();
     const uploadRepository = new UploadConfigRepository(store);
-    const settingsShell = createSettingsShell({ navigation: createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION) });
-    const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, documentObject: gm.document, MutationObserverClass: gm.MutationObserver });
+    const chatRepository = new ChatConfigRepository(store);
+    const readGate = new ReadGate(chatRepository.read().chatSettings);
+    let diagnostics;
+    const networkHooks = new ChatNetworkHooks({ windowObject: pageWindow2, readGate, onDiagnosticEvent: (event) => diagnostics?.record(event) });
+    diagnostics = new ChatDiagnostics({ networkHooks });
+    const navigation = createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION));
+    const settingsShell = createSettingsShell({ navigation });
+    const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
+    const chat = new ChatService({ documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
+    const chatAssistant = new ChatAssistantRuntime({ repository: chatRepository, readGate, networkHooks, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
+    const frequentClients = new FrequentClientsRuntime({ repository: chatRepository, chat, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver, fetchImpl: pageWindow2.fetch?.bind(pageWindow2) });
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
     modules.register("settings", settingsShell);
     modules.register("upload-assistant", uploadAssistant);
+    modules.register("chat-assistant", chatAssistant);
+    modules.register("frequent-clients", frequentClients);
     return {
       store,
       modules,
@@ -2052,6 +3582,12 @@ ${summary}
       settingsShell,
       uploadAssistant,
       uploadRepository,
+      chatRepository,
+      chatAssistant,
+      frequentClients,
+      chat,
+      diagnostics,
+      networkHooks,
       migrateLegacyData: () => migrateLegacyData(store),
       prepareLegacyImport: (inputs, options) => prepareLegacyImport(inputs, store, options),
       commitLegacyImport: (plan, options) => commitLegacyImport(plan, store, options),
@@ -2071,15 +3607,32 @@ ${summary}
       unmountUploadAssistant() {
         modules.unmount("upload-assistant");
       },
+      mountChatAssistant() {
+        modules.mount("chat-assistant");
+        modules.activate("chat-assistant");
+      },
+      unmountChatAssistant() {
+        modules.unmount("chat-assistant");
+      },
+      mountFrequentClients() {
+        modules.mount("frequent-clients");
+        modules.activate("frequent-clients");
+      },
+      unmountFrequentClients() {
+        modules.unmount("frequent-clients");
+      },
       dispose() {
         modules.disposeAll();
+        diagnostics.dispose();
+        networkHooks.dispose();
       }
     };
   }
 
   // src/userscript-entry.js
   var APP_VERSION = "0.1.0";
-  var core = createVGenNyaCore({ gm: globalThis });
+  var pageWindow = typeof unsafeWindow === "object" && unsafeWindow ? unsafeWindow : globalThis;
+  var core = createVGenNyaCore({ gm: globalThis, pageWindow });
   var overlay = null;
   var keydownHandler = null;
   function closeSettings() {
@@ -2143,6 +3696,8 @@ ${summary}
   function start() {
     GM_registerMenuCommand(`VGenToolNya ${APP_VERSION}：设置`, openSettings);
     core.mountUploadAssistant();
+    core.mountChatAssistant();
+    core.mountFrequentClients();
   }
   start();
 })();

@@ -12,4 +12,5 @@
 // @grant        GM_deleteValue
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
+// @grant        unsafeWindow
 // ==/UserScript==

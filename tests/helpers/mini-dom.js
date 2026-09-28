@@ -6,6 +6,17 @@ class MiniClassList {
     contains(name) {
         return this.element.className.split(/\s+/).filter(Boolean).includes(name);
     }
+
+    add(...names) {
+        const current = new Set(this.element.className.split(/\s+/).filter(Boolean));
+        names.forEach((name) => current.add(name));
+        this.element.className = [...current].join(' ');
+    }
+
+    remove(...names) {
+        const removed = new Set(names);
+        this.element.className = this.element.className.split(/\s+/).filter((name) => name && !removed.has(name)).join(' ');
+    }
 }
 
 export class MiniElement extends EventTarget {
@@ -70,6 +81,10 @@ export class MiniElement extends EventTarget {
             const value = part.trim();
             if (value === '[role="dialog"]' || value === '[role=dialog]') return this.getAttribute('role') === 'dialog';
             if (value === '[role="dialog"][aria-modal="true"]') return this.getAttribute('role') === 'dialog' && this.getAttribute('aria-modal') === 'true';
+            const classContains = value.match(/^([a-z]+)?\[class\*="([^"]+)"\]$/i);
+            if (classContains) return (!classContains[1] || this.tagName === classContains[1].toUpperCase()) && this.className.includes(classContains[2]);
+            const tagClass = value.match(/^([a-z]+)\.([A-Za-z0-9_-]+)$/i);
+            if (tagClass) return this.tagName === tagClass[1].toUpperCase() && this.classList.contains(tagClass[2]);
             if (value.startsWith('.')) return this.classList.contains(value.slice(1).split('[')[0]);
             const match = value.match(/^([a-z]+)(?:\[data-([a-z-]+)(?:="([^"]+)")?\])?$/i);
             if (!match || this.tagName !== match[1].toUpperCase()) return false;
@@ -80,6 +95,10 @@ export class MiniElement extends EventTarget {
     }
 
     querySelectorAll(selector) {
+        if (selector.startsWith(':scope > ')) {
+            const childSelector = selector.slice(9);
+            return this.children.filter((element) => element.matches(childSelector));
+        }
         return descendants(this).filter((element) => element.matches(selector));
     }
 
@@ -133,6 +152,10 @@ export class MiniDocument {
 
     querySelectorAll(selector) {
         return [this.body, ...descendants(this.body)].filter((element) => element.matches(selector));
+    }
+
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] || null;
     }
 
     getElementById(id) {
