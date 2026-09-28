@@ -1,5 +1,6 @@
 import { ClientBackgroundCache } from './client-background-cache.js';
 import { ClientReviewAdapter, REVIEW_SOURCE_STATES } from './client-review-adapter.js';
+import { ExportAdapter, normalizeOrder } from './export-adapter.js';
 import { OrderDetailLifecycle } from './order-detail-lifecycle.js';
 
 const ORDER_ASSISTANT_CSS = `
@@ -138,6 +139,12 @@ export class OrderAssistantSession {
             popover.append(article);
         }
         return popover;
+    }
+
+    // Reuses the already-fetched identity + review context (no re-scrape) to
+    // produce the JSON-safe NormalizedOrder a future exporter can consume.
+    exportOrder() {
+        return new ExportAdapter().toJSON(normalizeOrder(this.identity, this.result));
     }
 
     async copy(value, button) {
