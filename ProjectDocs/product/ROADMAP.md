@@ -70,7 +70,7 @@
 - 模型强度：Medium
 
 ## Iteration 5 — Order Assistant（Copy ID / URL / Client Background）
-- Status：**LIVE COMPLETE / MERGE REVIEW READY**（`npm test` 109/109、L1 77/77、L2 87/87、`release:check` 26/26；Chrome Live 已验证 Detail lifecycle / Copy / cache / 零写请求；二元 `wouldRecommend === false` 取代冻结 `rating < 5`；adapter 已接入真实 `api.vgen.co/discoverability/reviews/client/{id}` 条目数据源；最小 Live 复核 SAFE_ORDER_CLIENT-01 实际拉取 35 条推荐、0 条不推荐、3 轮 reopen 命中 cache、写请求 0）
+- Status：**MERGED / COMPLETE**（PR #4 已以 merge commit `625af27` 合并到 `main`；`ORDER-BACKGROUND-LIVE-01 = RESOLVED / PASS`、Review schema = RESOLVED；二元 `wouldRecommend === false`（主）/ 旧 `rating < 5`（兼容）为负向语义，禁止伪造星级；adapter 已接真实 `api.vgen.co/discoverability/reviews/client/{id}` 条目数据源；`toolInitiatedWrites = 0`；最终 `npm test` 109/109、L1 77/77、L2 87/87、`release:check` 26/26）
 - Goal：所有可打开的 Order / Commission Detail Panel 挂 Copy Client ID / Profile URL 与公开低星评价提醒（缓存）
 - Modules：Order Assistant、Client Background / Client Review Context
 - Non-goals：不改订单状态、不接飞书
