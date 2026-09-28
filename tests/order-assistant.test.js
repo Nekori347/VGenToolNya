@@ -7,10 +7,13 @@ import { Clipboard } from '../src/core/clipboard.js';
 import { OrderConfigRepository } from '../src/order/order-config.js';
 import {
     canonicalProfileUrl,
+    clientReviewEntriesUrl,
     ClientReviewAdapter,
+    extractClientReviewSource,
     normalizePublicHandle,
     normalizePublicReview,
     normalizeReviewContext,
+    normalizeReviewEntries,
     resolvePublicClientIdentity,
     REVIEW_SOURCE_STATES,
 } from '../src/order/client-review-adapter.js';
@@ -91,6 +94,151 @@ test('Iteration 5 L1: current binary client-review payload normalizes recommenda
     assert.equal(result.negativeReviews[0].body, 'Public non-recommendation text');
     assert.equal(normalizeReviewContext([{ wouldRecommend: true, reviewText: 'Only recommendation' }], client).negativeReviews.length, 0);
     assert.equal(normalizeReviewContext([{ wouldRecommend: 'yes', reviewText: 'Not a boolean' }], client).state, REVIEW_SOURCE_STATES.unavailable);
+});
+
+function reviewEntry(overrides = {}) {
+    return {
+        _id: 'a1', clientReviewID: 'c1', reviewText: 'Public review body', wouldRecommend: true,
+        created: '2026-09-18T03:27:06.276Z', ...overrides,
+    };
+}
+
+function profileHtml(userId, stats) {
+    const payload = { props: { pageProps: { user: { userID: userId, username: 'Client_A', clientReviewStats: stats } } } };
+    return `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(payload)}</script></body></html>`;
+}
+
+function reviewAdapter({ userId = '52bbac0b-074f-4f8d-b614-c33bbfcb4548', stats = null, pages = [[]], requests = [] }) {
+    class Parser {
+        parseFromString(html) {
+            const match = html.match(/<script[^>]+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+            return { querySelectorAll: () => (match ? [{ textContent: match[1] }] : []) };
+        }
+    }
+    const adapter = new ClientReviewAdapter({
+        DOMParserClass: Parser, now: () => 42,
+        fetchImpl: async (url, options) => {
+            requests.push({ url: String(url), options });
+            if (String(url).startsWith('https://vgen.co/')) return { ok: true, text: async () => profileHtml(userId, stats) };
+            const page = pages.shift();
+            if (page === 'not-ok') return { ok: false, status: 500, json: async () => [] };
+            if (page === 'malformed') return { ok: true, json: async () => ({ not: 'an array' }) };
+            return { ok: true, json: async () => (Array.isArray(page) ? page : []) };
+        },
+    });
+    return adapter;
+}
+
+test('Iteration 5 L1: adapter resolves client user id and fetches binary reviews (2 recommend / 0 not)', async () => {
+    const requests = [];
+    const stats = { totalReviews: 2, totalPositiveReviews: 2, totalNegativeReviews: 0 };
+    const adapter = reviewAdapter({
+        stats, requests,
+        pages: [[
+            reviewEntry({ reviewText: 'Great client', wouldRecommend: true }),
+            reviewEntry({ reviewText: 'Very patient', wouldRecommend: true }),
+        ]],
+    });
+    const result = await adapter.fetch(identity('binary-ok'));
+    assert.equal(result.state, REVIEW_SOURCE_STATES.success);
+    assert.equal(result.reviews.length, 2);
+    assert.equal(result.negativeReviews.length, 0);
+    assert.equal(result.negativeCount, 0);
+    const entriesRequests = requests.filter((request) => request.url.includes('discoverability/reviews/client'));
+    assert.equal(entriesRequests.length, 1);
+    assert.equal(entriesRequests[0].options.method, 'GET');
+    assert.equal(entriesRequests[0].options.headers['v-client-id'], 'vgen-web');
+    assert.match(entriesRequests[0].url, /offset=0&limit=20$/);
+});
+
+test('Iteration 5 L1: adapter reports one binary non-recommendation', async () => {
+    const requests = [];
+    const stats = { totalReviews: 2, totalPositiveReviews: 1, totalNegativeReviews: 1 };
+    const adapter = reviewAdapter({
+        stats, requests,
+        pages: [[
+            reviewEntry({ reviewText: 'Recommended', wouldRecommend: true }),
+            reviewEntry({ reviewText: 'Not recommended', wouldRecommend: false }),
+        ]],
+    });
+    const result = await adapter.fetch(identity('binary-neg'));
+    assert.equal(result.state, REVIEW_SOURCE_STATES.success);
+    assert.equal(result.negativeReviews.length, 1);
+    assert.equal(result.negativeReviews[0].body, 'Not recommended');
+    assert.equal(result.negativeCount, 1);
+});
+
+test('Iteration 5 L1: normalizeReviewEntries isolates multiple negative reviews and trusts the stats count', () => {
+    const client = identity('multi');
+    const result = normalizeReviewEntries([
+        { wouldRecommend: true, reviewText: 'A' },
+        { wouldRecommend: false, reviewText: 'B' },
+        { wouldRecommend: false, reviewText: 'C' },
+    ], client, 5, { totalReviews: 10, totalNegativeReviews: 3 });
+    assert.equal(result.state, REVIEW_SOURCE_STATES.success);
+    assert.deepEqual(result.negativeReviews.map((review) => review.body), ['B', 'C']);
+    assert.equal(result.negativeCount, 3);
+});
+
+test('Iteration 5 L1: entries paginate with offset/limit and stop on a short page', async () => {
+    const requests = [];
+    const stats = { totalReviews: 22, totalPositiveReviews: 22, totalNegativeReviews: 0 };
+    const page1 = Array.from({ length: 20 }, (_, i) => reviewEntry({ reviewText: `R${i}`, wouldRecommend: true }));
+    const page2 = Array.from({ length: 2 }, (_, i) => reviewEntry({ reviewText: `R${20 + i}`, wouldRecommend: true }));
+    const adapter = reviewAdapter({ stats, pages: [page1, page2], requests });
+    const result = await adapter.fetch(identity('paged'));
+    assert.equal(result.state, REVIEW_SOURCE_STATES.success);
+    assert.equal(result.reviews.length, 22);
+    const entriesRequests = requests.filter((request) => request.url.includes('discoverability/reviews/client'));
+    assert.deepEqual(entriesRequests.map((request) => request.url.match(/offset=(\d+)/)[1]), ['0', '20']);
+    assert.ok(entriesRequests.every((request) => request.url.includes('limit=20')));
+});
+
+test('Iteration 5 L1: entries request failure and malformed response are errors, never a safe empty result', async () => {
+    const notOk = reviewAdapter({ stats: { totalReviews: 2, totalNegativeReviews: 0 }, pages: ['not-ok'] });
+    await assert.rejects(() => notOk.fetch(identity('failing')), /entries request failed/);
+    const malformed = reviewAdapter({ stats: { totalReviews: 2, totalNegativeReviews: 0 }, pages: ['malformed'] });
+    await assert.rejects(() => malformed.fetch(identity('malformed')), /malformed/);
+});
+
+test('Iteration 5 L1: stats claiming reviews but no entries fetched is unavailable, not empty', () => {
+    const client = identity('mismatch');
+    const result = normalizeReviewEntries([], client, 8, { totalReviews: 170, totalNegativeReviews: 0 });
+    assert.equal(result.state, REVIEW_SOURCE_STATES.unavailable);
+    assert.equal(result.negativeReviews.length, 0);
+});
+
+test('Iteration 5 L1: legacy rating review items remain compatible through normalizeReviewEntries', () => {
+    const client = identity('legacy');
+    const result = normalizeReviewEntries([
+        { rating: 5, body: 'Five star' },
+        { rating: 4, body: 'Four star' },
+    ], client, 7, null);
+    assert.equal(result.state, REVIEW_SOURCE_STATES.success);
+    assert.deepEqual(result.negativeReviews.map((review) => review.rating), [4]);
+    assert.equal(result.negativeCount, 1);
+});
+
+test('Iteration 5 L1: cached client background does not refetch review entries', async () => {
+    const requests = [];
+    const adapter = reviewAdapter({ stats: { totalReviews: 1, totalNegativeReviews: 0 }, pages: [[reviewEntry({ reviewText: 'One', wouldRecommend: true })]], requests });
+    const cache = new ClientBackgroundCache({ now: () => 1 });
+    const client = identity('cached');
+    const first = await cache.load(client, () => adapter.fetch(client));
+    const second = await cache.load(client, () => adapter.fetch(client));
+    assert.equal(first.fromCache, false);
+    assert.equal(second.fromCache, true);
+    assert.equal(requests.filter((request) => request.url.includes('discoverability/reviews/client')).length, 1);
+});
+
+test('Iteration 5 L1: extracts client user id and builds the verified entries endpoint', () => {
+    const payload = { props: { pageProps: { user: { userID: '52bbac0b-074f-4f8d-b614-c33bbfcb4548', clientReviewStats: { totalReviews: 3, totalNegativeReviews: 1 } } } } };
+    const source = extractClientReviewSource(payload);
+    assert.equal(source.clientUserId, '52bbac0b-074f-4f8d-b614-c33bbfcb4548');
+    assert.equal(source.clientReviewStats.totalNegativeReviews, 1);
+    assert.equal(extractClientReviewSource({ props: { pageProps: {} } }), null);
+    assert.equal(clientReviewEntriesUrl('52bbac0b-074f-4f8d-b614-c33bbfcb4548'), 'https://api.vgen.co/discoverability/reviews/client/52bbac0b-074f-4f8d-b614-c33bbfcb4548');
+    assert.equal(clientReviewEntriesUrl('bad'), '');
 });
 
 test('Iteration 5 L1: public review adapter only performs GET and request errors remain errors', async () => {

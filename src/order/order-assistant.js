@@ -100,7 +100,7 @@ export class OrderAssistantSession {
             tools.append(make(documentObject, 'span', 'vgen-nya-order-assistant__status notranslate', '暂无公开评价'));
             return;
         }
-        const negativeCount = this.result.negativeReviews.length;
+        const negativeCount = Number.isFinite(this.result.negativeCount) ? this.result.negativeCount : this.result.negativeReviews.length;
         const trigger = control(documentObject, negativeCount
             ? `存在 ${negativeCount} 条不推荐的公开评价`
             : `查看公开评价 (${this.result.reviews.length})`, 'toggle-reviews');

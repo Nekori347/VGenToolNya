@@ -11,6 +11,20 @@ export const REVIEW_SOURCE_STATES = Object.freeze({
     unavailable: 'UNAVAILABLE',
 });
 
+// Verified against the live VGen API (2026-09-29): the "See all" client-review
+// collection is a GET to api.vgen.co/discoverability/reviews/client/{userID}
+// with offset/limit pagination. limit > 20 returns 400. The response is a bare
+// JSON array of review items; it carries no rating, total or cursor fields.
+export const CLIENT_REVIEW_PAGE_LIMIT = 20;
+export const CLIENT_REVIEW_MAX_PAGES = 5;
+export const CLIENT_REVIEW_ENTRIES_ORIGIN = 'https://api.vgen.co';
+
+export function clientReviewEntriesUrl(clientUserId) {
+    const id = String(clientUserId || '').trim();
+    if (!/^[A-Za-z0-9-]{8,}$/.test(id)) return '';
+    return `${CLIENT_REVIEW_ENTRIES_ORIGIN}/discoverability/reviews/client/${encodeURIComponent(id)}`;
+}
+
 function compact(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -131,21 +145,78 @@ export function normalizeReviewContext(raw, identity, now = Date.now()) {
         profileUrl: identity.profileUrl,
         reviews,
         negativeReviews,
+        negativeCount: negativeReviews.length,
         fetchedAt: now,
     };
 }
 
-export function extractReviewPayload(documentObject) {
+function scriptPayloads(documentObject) {
     const scripts = documentObject?.querySelectorAll?.('script[type="application/json"], script#__NEXT_DATA__') || [];
+    const values = [];
     for (const script of scripts) {
         try {
             const value = JSON.parse(script.textContent || '');
-            if (reviewCollections(value).length) return value;
+            if (value && typeof value === 'object') values.push(value);
         } catch {
             // Ignore unrelated or malformed page scripts. Unknown data is not treated as an empty result.
         }
     }
+    return values;
+}
+
+export function extractReviewPayload(documentObject) {
+    for (const value of scriptPayloads(documentObject)) {
+        if (reviewCollections(value).length) return value;
+    }
     return null;
+}
+
+export function extractPagePayload(documentObject) {
+    for (const value of scriptPayloads(documentObject)) {
+        if (value?.props?.pageProps) return value;
+    }
+    return null;
+}
+
+// Resolves the stable client user id and public review stats from a VGen
+// profile page payload. The live profile __NEXT_DATA__ exposes
+// props.pageProps.user.userID and props.pageProps.user.clientReviewStats.
+export function extractClientReviewSource(payload) {
+    const user = payload?.props?.pageProps?.user;
+    if (!user || typeof user !== 'object') return null;
+    const clientUserId = typeof user.userID === 'string' ? user.userID.trim() : '';
+    if (!clientUserId) return null;
+    const clientReviewStats = user.clientReviewStats && typeof user.clientReviewStats === 'object' ? user.clientReviewStats : null;
+    return { clientUserId, clientReviewStats };
+}
+
+export function normalizeReviewEntries(entries, identity, now = Date.now(), stats = null) {
+    const list = Array.isArray(entries) ? entries : [];
+    const reviews = list.map(normalizePublicReview).filter(Boolean);
+    const totalReviews = Number(stats?.totalReviews);
+    // Unknown schema, or a stats/entries mismatch (stats claim reviews exist but
+    // none were fetched), is never treated as a safe empty result.
+    if ((list.length && !reviews.length) || (!list.length && Number.isFinite(totalReviews) && totalReviews > 0)) {
+        return {
+            state: REVIEW_SOURCE_STATES.unavailable,
+            clientId: identity.clientId,
+            profileUrl: identity.profileUrl,
+            reviews: [], negativeReviews: [], negativeCount: 0,
+            clientReviewStats: stats && typeof stats === 'object' ? stats : null, fetchedAt: now,
+        };
+    }
+    const negativeReviews = reviews.filter((review) => review.negative);
+    const totalNegative = Number(stats?.totalNegativeReviews);
+    return {
+        state: reviews.length ? REVIEW_SOURCE_STATES.success : REVIEW_SOURCE_STATES.empty,
+        clientId: identity.clientId,
+        profileUrl: identity.profileUrl,
+        reviews,
+        negativeReviews,
+        negativeCount: Number.isFinite(totalNegative) ? totalNegative : negativeReviews.length,
+        clientReviewStats: stats && typeof stats === 'object' ? stats : null,
+        fetchedAt: now,
+    };
 }
 
 export class ClientReviewAdapter {
@@ -172,6 +243,34 @@ export class ClientReviewAdapter {
         });
         if (!response?.ok) throw new Error(`Public profile request failed (${response?.status || 'unknown'})`);
         const documentObject = new this.DOMParserClass().parseFromString(await response.text(), 'text/html');
+        const source = extractClientReviewSource(extractPagePayload(documentObject));
+        if (source?.clientUserId) {
+            const entries = await this.#fetchReviewEntries(source.clientUserId, { signal });
+            return normalizeReviewEntries(entries, { ...identity, clientUserId: source.clientUserId }, this.now(), source.clientReviewStats);
+        }
         return normalizeReviewContext(extractReviewPayload(documentObject), identity, this.now());
+    }
+
+    async #fetchReviewEntries(clientUserId, { signal }) {
+        const limit = CLIENT_REVIEW_PAGE_LIMIT;
+        const entries = [];
+        let offset = 0;
+        for (let page = 0; page < CLIENT_REVIEW_MAX_PAGES; page += 1) {
+            const url = `${clientReviewEntriesUrl(clientUserId)}?offset=${offset}&limit=${limit}`;
+            const response = await this.fetchImpl(url, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'v-client-id': 'vgen-web' },
+                signal,
+            });
+            if (!response?.ok) throw new Error(`Public review entries request failed (${response?.status || 'unknown'})`);
+            const items = await response.json();
+            if (!Array.isArray(items)) throw new Error('Public review entries response was malformed');
+            if (!items.length) break;
+            entries.push(...items);
+            if (items.length < limit) break;
+            offset += limit;
+        }
+        return entries;
     }
 }
