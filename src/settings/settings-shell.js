@@ -20,6 +20,7 @@ const SHELL_CSS = `
 .vgen-nya-settings__preset-row { display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee; }
 .vgen-nya-settings__check { display:block;margin:7px 0; }
 .vgen-nya-settings__toolbar { margin-bottom:8px; }
+.vgen-nya-settings__hint{margin:0 0 10px;color:inherit;opacity:.72}.vgen-nya-settings__preset-editor{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(180px,1.4fr) minmax(100px,1fr) repeat(4,auto);gap:7px;align-items:center;padding:8px 0;border-bottom:1px solid #e5e7eb}.vgen-nya-settings__preset-editor input,.vgen-nya-settings__preset-editor textarea,.vgen-nya-settings__preset-add input,.vgen-nya-settings__preset-add textarea{width:100%;min-width:0;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;background:inherit;color:inherit;font:inherit}.vgen-nya-settings__preset-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72}.vgen-nya-settings__preset-add{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.8fr) auto;gap:7px;align-items:center;margin-top:12px}.vgen-nya-settings__preset-status{min-height:1.4em;margin:8px 0 0}.vgen-nya-settings__preset-status[data-error="true"]{color:#c62828}
 @media (max-width: 680px) { .vgen-nya-settings { grid-template-columns: 1fr; } .vgen-nya-settings__nav { border-right: 0; border-bottom: 1px solid #e4e5e7; } }
 `;
 

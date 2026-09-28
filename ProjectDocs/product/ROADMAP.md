@@ -57,11 +57,12 @@
 - 模型强度：High（回归敏感）
 
 ## Iteration 4 — Text Preset Engine + Delivery/Note/Quick Reply
+- Status：**IN PROGRESS / AUTOMATION GATE**
 - Goal：统一 Text Preset Engine，接入 Final Delivery、Private Note、Chat Quick Reply
 - Modules：Preset Engine、Upload（Title/Description 复用）、Chat、Order
 - Non-goals：不自动提交/发送/交付
 - Dependencies：I2、I3
-- Acceptance：四类文本场景共享引擎、只填入不提交
+- Acceptance：五个 Context（Title、Description、Final Delivery、Private Note、Chat Quick Reply）共享 Engine contract、数据空间隔离、只填入不提交
 - L1：Private Note / Chat Quick Reply；L2：Title/Description 回归
 - Browser 验证：Private Note 输入区、聊天 composer
 - STOP：Final Delivery 需改变订单状态才能验证 → 记录 DELIVERY-LIVE-01

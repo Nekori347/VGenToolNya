@@ -64,6 +64,7 @@ function start() {
     core.mountUploadAssistant();
     core.mountChatAssistant();
     core.mountFrequentClients();
+    core.mountOrderTextPresets();
 }
 
 start();

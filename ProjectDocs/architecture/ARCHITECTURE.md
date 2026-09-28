@@ -56,6 +56,14 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 - `●/✓`、Bubble 内状态长条、seen 与 timestamp 是相互独立的展示层；状态长条参与 Bubble 正常布局流，以适应翻译扩展造成的动态高度。
 - UI parity 是各迁移模块的 Merge Gate；跨模块统一视觉由 Stable Release 前的 `UI-FINAL-POLISH-01` 收口，Architecture 不固化具体像素值。
 
+## Text Preset Engine
+
+- Engine 统一 collection、CRUD、排序、选择、preview 与带确认/回滚的 context export/import；五个 Context 使用独立 adapter 的 `serialize / deserialize / preview / validate / fill` contract。
+- Upload Title / Description 继续直接使用既有 `vgen-nya.title-presets.v1` 与 `vgen-nya.description-presets.v1`，不建立复制 schema；Description adapter 校验 Slate，但存储与填入均保留原始 JSON 字符串。
+- Chat Quick Reply、Private Note 与 Final Delivery 各使用独立 `vgen-nya.text-presets.*.v1` key。Context 间不得共享数组或把 Combination 摊平。
+- Chat Quick Reply 复用 Chat session/composer lifecycle；Order Note 只使用 body 直属 child observer 与精确 Note target。Final Delivery 未验证 selector 不进入正常 runtime detector。
+- Engine 与 Context Adapter 只提供 resolve + fill；API 不包含 send、save、deliver 或 submit。
+
 ## 关键约束
 
 - Discovery/Search Tags 保持独立语义，不塞入文本预设模型。

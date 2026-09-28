@@ -102,3 +102,23 @@ test('L2: core opens the shell while legacy settings remain compatibly readable'
     core.dispose();
     assert.equal(host.children.length, 0);
 });
+
+test('Iteration 4 L2: Settings keeps three levels while adding Quick Reply and two Order text sections', () => {
+    const core = createVGenNyaCore({ storageDriver: new MemoryStorageDriver(), gm: {} });
+    const documentObject = new MiniDocument();
+    const host = documentObject.createElement('div');
+    core.mountSettings(host);
+
+    core.settingsShell.selectNavigation('chat');
+    let tabs = buttons(core.settingsShell.element).filter((button) => button.dataset.action === 'tab').map((button) => button.textContent);
+    assert.deepEqual(tabs, ['聊天显示', '已读控制', '快捷回复']);
+    core.settingsShell.selectTab('quick-reply');
+    assert.equal(core.settingsShell.toggleSection('chat:quick-reply:quick-reply'), true);
+
+    core.settingsShell.selectNavigation('orders');
+    tabs = buttons(core.settingsShell.element).filter((button) => button.dataset.action === 'tab').map((button) => button.textContent);
+    assert.deepEqual(tabs, ['文本预设']);
+    const sectionToggles = buttons(core.settingsShell.element).filter((button) => button.dataset.action === 'section');
+    assert.deepEqual(sectionToggles.map((button) => button.children[0]?.textContent), ['Final Delivery', 'Private Note']);
+    core.dispose();
+});

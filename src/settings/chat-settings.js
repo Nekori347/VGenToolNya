@@ -142,7 +142,7 @@ function renderDiagnostics(diagnostics) {
     };
 }
 
-export function createChatSettingsNavigation(repository, diagnostics, baseNavigation) {
+export function createChatSettingsNavigation(repository, diagnostics, baseNavigation, textPresetEngine = null) {
     return baseNavigation.map((item) => {
         if (item.id === 'chat') return {
             ...item,
@@ -153,6 +153,7 @@ export function createChatSettingsNavigation(repository, diagnostics, baseNaviga
                 { id: 'read-control', label: '已读控制', sections: [{ id: 'read-control', title: '服务器已读边界', render: renderChat(repository, [
                     ['keepUnread', '保持服务器未读，手动释放'], ['reactionMarkRead', 'Reaction 成功后标记已读'],
                 ]) }] },
+                ...(textPresetEngine ? [{ id: 'quick-reply', label: '快捷回复', sections: [{ id: 'quick-reply', title: 'Chat Quick Reply', render: renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.chatQuickReply, { contentLabel: '回复内容' }) }] }] : []),
             ],
         };
         if (item.id === 'clients') return {
@@ -169,3 +170,5 @@ export function createChatSettingsNavigation(repository, diagnostics, baseNaviga
         return item;
     });
 }
+import { TEXT_PRESET_CONTEXTS } from '../presets/context-registry.js';
+import { renderTextPresetManager } from './text-preset-settings.js';

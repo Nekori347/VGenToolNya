@@ -1,4 +1,5 @@
 import { VGenUploadAdapter } from './vgen-upload-adapter.js';
+import { TEXT_PRESET_CONTEXTS } from '../presets/context-registry.js';
 
 const CSS = `
 .vgen-nya-upload{margin:10px 0;padding:10px;border:1px solid #cfd8e3;border-radius:10px;background:#f8fbff;color:#253247;font:13px/1.4 system-ui,sans-serif}.vgen-nya-upload *{box-sizing:border-box}.vgen-nya-upload__head{display:flex;align-items:center;gap:8px}.vgen-nya-upload__head strong{flex:1}.vgen-nya-upload button,.vgen-nya-upload select{font:inherit}.vgen-nya-upload button{cursor:pointer}.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:9px}.vgen-nya-upload__row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-upload__row>label{min-width:72px;font-weight:600}.vgen-nya-upload__row select{min-width:160px;max-width:360px}.vgen-nya-upload__groups{display:grid;gap:6px}.vgen-nya-upload__group{border:1px solid #d9e1ea;border-radius:8px;overflow:hidden}.vgen-nya-upload__group summary{padding:6px 8px;cursor:pointer}.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:5px;padding:7px}.vgen-nya-upload__tag[aria-pressed=true]{background:#1e78ca;color:#fff}.vgen-nya-upload__status{min-height:1.3em;color:#55657a}.vgen-nya-upload[data-theme=dark]{background:#1f2935;color:#eef5ff;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] .vgen-nya-upload__group{border-color:#4b5b6d}
@@ -27,7 +28,7 @@ function keyOfTag(value) {
 }
 
 export class UploadAssistantSession {
-    constructor({ surface, repository, adapter = new VGenUploadAdapter(surface), MutationObserverClass = globalThis.MutationObserver, onInactive = null }) {
+    constructor({ surface, repository, textPresetEngine, adapter = new VGenUploadAdapter(surface), MutationObserverClass = globalThis.MutationObserver, onInactive = null }) {
         this.surface = surface;
         this.repository = repository;
         this.adapter = adapter;
@@ -37,6 +38,7 @@ export class UploadAssistantSession {
         this.unsubscribe = null;
         this.renderQueued = false;
         this.onInactive = onInactive;
+        this.textPresetEngine = textPresetEngine;
     }
 
     mount() {
@@ -98,8 +100,8 @@ export class UploadAssistantSession {
         const modules = make(documentObject, 'div', { className: 'vgen-nya-upload__modules' });
         const settings = snapshot.uploadSettings.modules;
         if (settings.global) modules.append(this.presetRow(documentObject, '组合预设', 'combination', snapshot.combinationPresets));
-        if (settings.title) modules.append(this.presetRow(documentObject, '标题', 'title', snapshot.titlePresets));
-        if (settings.description) modules.append(this.presetRow(documentObject, '描述', 'description', snapshot.descriptionPresets));
+        if (settings.title) modules.append(this.presetRow(documentObject, '标题', 'title', snapshot.titlePresets, native.title));
+        if (settings.description) modules.append(this.presetRow(documentObject, '描述', 'description', snapshot.descriptionPresets, native.description));
         if (settings.discovery) modules.append(this.presetRow(documentObject, '发现标签', 'discovery', snapshot.discoveryPresets));
         if (settings.tags) {
             const groups = make(documentObject, 'div', { className: 'vgen-nya-upload__groups' });
@@ -135,11 +137,12 @@ export class UploadAssistantSession {
         this.root.append(modules);
     }
 
-    presetRow(documentObject, label, kind, presets) {
+    presetRow(documentObject, label, kind, presets, currentValue = undefined) {
         const row = make(documentObject, 'div', { className: 'vgen-nya-upload__row' });
         const select = make(documentObject, 'select', { dataset: { kind }, 'aria-label': label });
         select.append(make(documentObject, 'option', { value: '' }, `选择${label}`));
         for (const preset of presets) select.append(make(documentObject, 'option', { value: preset.id }, preset.name || '未命名'));
+        if (currentValue !== undefined) select.value = String(presets.find((preset) => presetValue(preset, kind) === currentValue)?.id || '');
         row.append(
             make(documentObject, 'label', {}, label),
             select,
@@ -166,6 +169,10 @@ export class UploadAssistantSession {
             else if (select.dataset.kind === 'discovery') {
                 await this.adapter.applyDiscovery(preset);
                 if (snapshot.uploadSettings.autoCollapseDiscovery) this.adapter.collapseDiscovery?.();
+            }
+            else if (this.textPresetEngine) {
+                const context = select.dataset.kind === 'title' ? TEXT_PRESET_CONTEXTS.uploadTitle : TEXT_PRESET_CONTEXTS.uploadDescription;
+                await this.textPresetEngine.select(context, preset.id, this.adapter);
             }
             else await this.adapter.applyText(select.dataset.kind, presetValue(preset, select.dataset.kind));
             message = `已应用“${preset.name || '未命名'}”`;
@@ -194,8 +201,12 @@ export class UploadAssistantSession {
             const values = snapshot[domain];
             if (button.dataset.kind === 'combination') values.push({ id, name: name.trim(), title: native.title, description: native.description, discoverySchema: native.discoverySchema || [], discoveryValues: native.discoveryValues, tags: native.tags });
             else if (button.dataset.kind === 'discovery') values.push({ id, name: name.trim(), schema: native.discoverySchema || [], values: native.discoveryValues });
+            else if (this.textPresetEngine) {
+                const context = button.dataset.kind === 'title' ? TEXT_PRESET_CONTEXTS.uploadTitle : TEXT_PRESET_CONTEXTS.uploadDescription;
+                this.textPresetEngine.create(context, { id, name: name.trim(), payload: native[button.dataset.kind] });
+            }
             else values.push({ id, name: name.trim(), value: native[button.dataset.kind] });
-            this.repository.writeDomain(domain, values);
+            if (button.dataset.kind === 'combination' || button.dataset.kind === 'discovery' || !this.textPresetEngine) this.repository.writeDomain(domain, values);
             this.setStatus(`已保存“${name.trim()}”`);
             return;
         }
@@ -227,11 +238,12 @@ export class UploadAssistantSession {
 }
 
 export class UploadAssistantRuntime {
-    constructor({ repository, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory = (surface) => new VGenUploadAdapter(surface) }) {
+    constructor({ repository, textPresetEngine, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory = (surface) => new VGenUploadAdapter(surface) }) {
         this.repository = repository;
         this.documentObject = documentObject;
         this.MutationObserverClass = MutationObserverClass;
         this.adapterFactory = adapterFactory;
+        this.textPresetEngine = textPresetEngine;
         this.sessions = new Map();
         this.portalObserver = null;
         this.probes = new Map();
@@ -267,7 +279,7 @@ export class UploadAssistantRuntime {
             const adapter = this.adapterFactory(surface);
             if (!adapter.findTagInput?.()) continue;
             const session = new UploadAssistantSession({
-                surface, repository: this.repository, adapter, MutationObserverClass: this.MutationObserverClass,
+                surface, repository: this.repository, textPresetEngine: this.textPresetEngine, adapter, MutationObserverClass: this.MutationObserverClass,
                 onInactive: () => { session.unmount(); this.sessions.delete(surface); },
             });
             session.mount();

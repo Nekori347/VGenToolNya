@@ -31,3 +31,6 @@
 25. **模块完成区分 FUNCTIONAL 与 UI_POLISHED。** 迁移早期允许 Demo UI，但对应 Merge Gate 前必须完成 UI parity；不能用“功能可用”替代交付质量检查。
 26. **Chat 状态长条是独立视觉层。** 它必须位于 Bubble 正常布局流，outgoing 顶部、incoming 底部；开关不得联动关闭 `●/✓`、seen、timestamp 或 read control。
 27. **VGen 原生视觉优先。** 旧脚本提供成熟交互语义而非像素级模板；最终统一视觉以 VGen 原生层级、状态色、深浅主题与动态内容兼容为基准。
+28. **Text Preset Engine 使用共享 contract + Context Adapter。** 五个 Context 共享 collection/CRUD/排序/选择/导入导出能力，但各自拥有 serialize/deserialize/preview/validate/fill；统一 UI 不等于统一 payload。
+29. **Title / Description 不做无意义迁移。** Engine 直接桥接既有稳定键与数组对象；Description 的 Slate JSON 不 parse-and-reserialize，Combination 继续由 Upload 模块组合调用。
+30. **Preset apply 与业务提交永久分离。** Chat Quick Reply、Private Note、Final Delivery adapter 只可填入原生输入状态；禁止设计或调用自动 send/save/deliver/submit API。非空文本默认要求明确替换确认。

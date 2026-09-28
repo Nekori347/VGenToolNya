@@ -5,6 +5,8 @@ const DOMAIN_LABELS = Object.freeze({
     discoveryPresets: '发现标签预设',
     searchTagGroups: '搜索标签分类',
 });
+import { TEXT_PRESET_CONTEXTS } from '../presets/context-registry.js';
+import { renderTextPresetManager } from './text-preset-settings.js';
 
 function make(documentObject, tag, attributes = {}, text = '') {
     const node = documentObject.createElement(tag);
@@ -117,14 +119,14 @@ function renderInterface(repository) {
     };
 }
 
-export function createUploadSettingsNavigation(repository, baseNavigation) {
+export function createUploadSettingsNavigation(repository, baseNavigation, textPresetEngine = null) {
     return baseNavigation.map((item) => item.id !== 'upload' ? item : {
         ...item,
         tabs: [
             { id: 'combination', label: '组合预设', sections: [{ id: 'combination', title: DOMAIN_LABELS.combinationPresets, render: renderPresetManager(repository, 'combinationPresets') }] },
             { id: 'text', label: '标题 / 描述', sections: [
-                { id: 'title', title: DOMAIN_LABELS.titlePresets, render: renderPresetManager(repository, 'titlePresets') },
-                { id: 'description', title: DOMAIN_LABELS.descriptionPresets, render: renderPresetManager(repository, 'descriptionPresets') },
+                { id: 'title', title: DOMAIN_LABELS.titlePresets, render: textPresetEngine ? renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.uploadTitle, { contentLabel: '标题内容' }) : renderPresetManager(repository, 'titlePresets') },
+                { id: 'description', title: DOMAIN_LABELS.descriptionPresets, render: textPresetEngine ? renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.uploadDescription, { contentLabel: 'Slate JSON' }) : renderPresetManager(repository, 'descriptionPresets') },
             ] },
             { id: 'discovery', label: '发现标签', sections: [{ id: 'discovery', title: DOMAIN_LABELS.discoveryPresets, render: renderPresetManager(repository, 'discoveryPresets') }] },
             { id: 'search-tags', label: '搜索标签', sections: [{ id: 'search-tags', title: DOMAIN_LABELS.searchTagGroups, render: renderPresetManager(repository, 'searchTagGroups') }] },

@@ -353,7 +353,10 @@
     uiSettings: "vgen-nya.ui-settings.v1",
     clients: "vgen-nya.clients.v1",
     chatSettings: "vgen-nya.chat-settings.v1",
-    clientsSettings: "vgen-nya.clients-settings.v1"
+    clientsSettings: "vgen-nya.clients-settings.v1",
+    chatQuickReplyPresets: "vgen-nya.text-presets.chat-quick-reply.v1",
+    privateNotePresets: "vgen-nya.text-presets.private-note.v1",
+    finalDeliveryPresets: "vgen-nya.text-presets.final-delivery.v1"
   });
   var isArray = Array.isArray;
   function requireArray(value, label) {
@@ -932,6 +935,7 @@
 .vgen-nya-settings__preset-row { display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee; }
 .vgen-nya-settings__check { display:block;margin:7px 0; }
 .vgen-nya-settings__toolbar { margin-bottom:8px; }
+.vgen-nya-settings__hint{margin:0 0 10px;color:inherit;opacity:.72}.vgen-nya-settings__preset-editor{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(180px,1.4fr) minmax(100px,1fr) repeat(4,auto);gap:7px;align-items:center;padding:8px 0;border-bottom:1px solid #e5e7eb}.vgen-nya-settings__preset-editor input,.vgen-nya-settings__preset-editor textarea,.vgen-nya-settings__preset-add input,.vgen-nya-settings__preset-add textarea{width:100%;min-width:0;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;background:inherit;color:inherit;font:inherit}.vgen-nya-settings__preset-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72}.vgen-nya-settings__preset-add{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.8fr) auto;gap:7px;align-items:center;margin-top:12px}.vgen-nya-settings__preset-status{min-height:1.4em;margin:8px 0 0}.vgen-nya-settings__preset-status[data-error="true"]{color:#c62828}
 @media (max-width: 680px) { .vgen-nya-settings { grid-template-columns: 1fr; } .vgen-nya-settings__nav { border-right: 0; border-bottom: 1px solid #e4e5e7; } }
 `;
   function element(documentObject, tagName, attributes = {}, text = "") {
@@ -1109,6 +1113,135 @@
     };
   }
 
+  // src/presets/context-registry.js
+  var TEXT_PRESET_CONTEXTS = Object.freeze({
+    uploadTitle: "upload-title",
+    uploadDescription: "upload-description",
+    finalDelivery: "final-delivery",
+    privateNote: "private-note",
+    chatQuickReply: "chat-quick-reply"
+  });
+  var TextPresetContextRegistry = class {
+    constructor(entries = []) {
+      this.contexts = new Map(entries);
+    }
+    register(id, adapter) {
+      if (!Object.values(TEXT_PRESET_CONTEXTS).includes(id)) throw new TypeError(`Unknown text preset context: ${id}`);
+      for (const method of ["serialize", "deserialize", "preview", "fill", "validate"]) {
+        if (typeof adapter?.[method] !== "function") throw new TypeError(`${id} adapter requires ${method}()`);
+      }
+      this.contexts.set(id, adapter);
+      return adapter;
+    }
+    get(id) {
+      const adapter = this.contexts.get(id);
+      if (!adapter) throw new TypeError(`Text preset context is not registered: ${id}`);
+      return adapter;
+    }
+    has(id) {
+      return this.contexts.has(id);
+    }
+  };
+
+  // src/settings/text-preset-settings.js
+  function make(documentObject, tag, attributes = {}, text = "") {
+    const node = documentObject.createElement(tag);
+    for (const [key, value] of Object.entries(attributes)) {
+      if (key === "className") node.className = value;
+      else if (key === "dataset") Object.assign(node.dataset, value);
+      else if (key in node) node[key] = value;
+      else node.setAttribute(key, value);
+    }
+    if (text) node.textContent = text;
+    return node;
+  }
+  function renderTextPresetManager(engine, context, { contentLabel = "内容" } = {}) {
+    return ({ documentObject, body, use }) => {
+      let dragIndex = null;
+      const status = make(documentObject, "p", { className: "vgen-nya-settings__preset-status", dataset: { role: "status" } });
+      const render = () => {
+        const items = engine.list(context);
+        body.replaceChildren(make(documentObject, "p", { className: "vgen-nya-settings__hint" }, `${items.length} 项 · 可拖动或使用箭头排序；点击业务页面预设只填入，不提交。`));
+        for (const [index, preset] of items.entries()) {
+          const row = make(documentObject, "div", { className: "vgen-nya-settings__preset-editor", dataset: { index }, draggable: true });
+          const name = make(documentObject, "input", { value: preset.name, dataset: { role: "name" }, "aria-label": "预设名称" });
+          name.value = preset.name;
+          const content = make(documentObject, "textarea", { rows: 2, dataset: { role: "content" }, "aria-label": contentLabel });
+          content.value = engine.registry.get(context).deserialize(preset);
+          const preview = make(documentObject, "span", { className: "vgen-nya-settings__preset-preview", title: engine.preview(context, preset.id, 500) }, engine.preview(context, preset.id, 100) || "（空内容）");
+          row.append(
+            name,
+            content,
+            preview,
+            make(documentObject, "button", { type: "button", dataset: { action: "save", id: preset.id } }, "保存"),
+            make(documentObject, "button", { type: "button", dataset: { action: "up", index }, disabled: index === 0 }, "↑"),
+            make(documentObject, "button", { type: "button", dataset: { action: "down", index }, disabled: index === items.length - 1 }, "↓"),
+            make(documentObject, "button", { type: "button", dataset: { action: "delete", id: preset.id } }, "删除")
+          );
+          body.append(row);
+        }
+        const add = make(documentObject, "div", { className: "vgen-nya-settings__preset-add" });
+        const newName = make(documentObject, "input", { placeholder: "新预设名称", dataset: { role: "new-name" } });
+        const newContent = make(documentObject, "textarea", { rows: 2, placeholder: contentLabel, dataset: { role: "new-content" } });
+        add.append(newName, newContent, make(documentObject, "button", { type: "button", dataset: { action: "add" } }, "新建"));
+        body.append(add, status);
+      };
+      const show = (message, error = false) => {
+        const node = body.querySelector('[data-role="status"]');
+        if (node) {
+          node.textContent = message;
+          node.dataset.error = String(error);
+        }
+      };
+      const onClick = (event) => {
+        const button = event.target?.closest?.("button[data-action]");
+        if (!button || !body.contains(button)) return;
+        try {
+          const action = button.dataset.action;
+          if (action === "add") {
+            const name = body.querySelector('[data-role="new-name"]')?.value || "";
+            const payload = body.querySelector('[data-role="new-content"]')?.value || "";
+            engine.create(context, { name, payload });
+          } else if (action === "save") {
+            const row = button.closest(".vgen-nya-settings__preset-editor");
+            engine.update(context, button.dataset.id, { name: row.querySelector('[data-role="name"]')?.value, payload: row.querySelector('[data-role="content"]')?.value });
+          } else if (action === "delete") engine.delete(context, button.dataset.id);
+          else {
+            const from = Number(button.dataset.index);
+            engine.reorder(context, from, action === "up" ? from - 1 : from + 1);
+          }
+          render();
+          show("已保存");
+        } catch (error) {
+          show(error.message || "保存失败", true);
+        }
+      };
+      const onDragStart = (event) => {
+        dragIndex = Number(event.target?.closest?.("[data-index]")?.dataset.index);
+      };
+      const onDragOver = (event) => {
+        if (event.target?.closest?.("[data-index]")) event.preventDefault();
+      };
+      const onDrop = (event) => {
+        const to = Number(event.target?.closest?.("[data-index]")?.dataset.index);
+        if (Number.isInteger(dragIndex) && Number.isInteger(to) && dragIndex !== to) {
+          engine.reorder(context, dragIndex, to);
+          render();
+        }
+        dragIndex = null;
+      };
+      body.addEventListener("click", onClick);
+      body.addEventListener("dragstart", onDragStart);
+      body.addEventListener("dragover", onDragOver);
+      body.addEventListener("drop", onDrop);
+      use(() => body.removeEventListener("click", onClick));
+      use(() => body.removeEventListener("dragstart", onDragStart));
+      use(() => body.removeEventListener("dragover", onDragOver));
+      use(() => body.removeEventListener("drop", onDrop));
+      render();
+    };
+  }
+
   // src/settings/upload-settings.js
   var DOMAIN_LABELS = Object.freeze({
     combinationPresets: "组合预设",
@@ -1117,7 +1250,7 @@
     discoveryPresets: "发现标签预设",
     searchTagGroups: "搜索标签分类"
   });
-  function make(documentObject, tag, attributes = {}, text = "") {
+  function make2(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
       if (key === "className") node.className = value;
@@ -1133,24 +1266,24 @@
       const render = () => {
         const data = repository.read()[domain];
         body.replaceChildren();
-        const toolbar = make(documentObject, "div", { className: "vgen-nya-settings__toolbar" });
-        toolbar.append(make(documentObject, "span", {}, `${data.length} 项；顺序即 Upload Assistant 显示顺序。`));
+        const toolbar = make2(documentObject, "div", { className: "vgen-nya-settings__toolbar" });
+        toolbar.append(make2(documentObject, "span", {}, `${data.length} 项；顺序即 Upload Assistant 显示顺序。`));
         body.append(toolbar);
         data.forEach((preset, index) => {
-          const row = make(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
+          const row = make2(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
           row.append(
-            make(documentObject, "span", {}, preset.name || preset.tag || `未命名 ${index + 1}`),
-            make(documentObject, "button", { type: "button", dataset: { action: "up", index }, disabled: index === 0 }, "↑"),
-            make(documentObject, "button", { type: "button", dataset: { action: "down", index }, disabled: index === data.length - 1 }, "↓"),
-            make(documentObject, "button", { type: "button", dataset: { action: "delete", index } }, "删除")
+            make2(documentObject, "span", {}, preset.name || preset.tag || `未命名 ${index + 1}`),
+            make2(documentObject, "button", { type: "button", dataset: { action: "up", index }, disabled: index === 0 }, "↑"),
+            make2(documentObject, "button", { type: "button", dataset: { action: "down", index }, disabled: index === data.length - 1 }, "↓"),
+            make2(documentObject, "button", { type: "button", dataset: { action: "delete", index } }, "删除")
           );
           body.append(row);
         });
-        const editor = make(documentObject, "details");
-        const summary = make(documentObject, "summary", {}, "高级 JSON 编辑（保留原字段）");
-        const textarea = make(documentObject, "textarea", { rows: 10, value: JSON.stringify(data, null, 2), dataset: { role: "json" } });
+        const editor = make2(documentObject, "details");
+        const summary = make2(documentObject, "summary", {}, "高级 JSON 编辑（保留原字段）");
+        const textarea = make2(documentObject, "textarea", { rows: 10, value: JSON.stringify(data, null, 2), dataset: { role: "json" } });
         textarea.style.width = "100%";
-        const save = make(documentObject, "button", { type: "button", dataset: { action: "save-json" } }, "校验并保存");
+        const save = make2(documentObject, "button", { type: "button", dataset: { action: "save-json" } }, "校验并保存");
         editor.append(summary, textarea, save);
         body.append(editor);
       };
@@ -1186,18 +1319,18 @@
       body.replaceChildren();
       const labels = { global: "组合预设", title: "标题", description: "描述", discovery: "发现标签", tags: "搜索标签" };
       for (const [key, label] of Object.entries(labels)) {
-        const row = make(documentObject, "label", { className: "vgen-nya-settings__check" });
-        row.append(make(documentObject, "input", { type: "checkbox", checked: settings.modules[key], dataset: { module: key } }), documentObject.createTextNode(` ${label}`));
+        const row = make2(documentObject, "label", { className: "vgen-nya-settings__check" });
+        row.append(make2(documentObject, "input", { type: "checkbox", checked: settings.modules[key], dataset: { module: key } }), documentObject.createTextNode(` ${label}`));
         body.append(row);
       }
-      const collapse = make(documentObject, "label", { className: "vgen-nya-settings__check" });
-      collapse.append(make(documentObject, "input", { type: "checkbox", checked: settings.autoCollapseDiscovery, dataset: { setting: "autoCollapseDiscovery" } }), documentObject.createTextNode(" 应用后自动折叠发现标签"));
-      const theme = make(documentObject, "select", { dataset: { setting: "theme" } });
-      theme.append(make(documentObject, "option", { value: "light", selected: snapshot.uiSettings.theme === "light" }, "浅色"), make(documentObject, "option", { value: "dark", selected: snapshot.uiSettings.theme === "dark" }, "深色"));
-      const refresh = make(documentObject, "button", { type: "button", dataset: { action: "refresh" } }, "刷新 Upload 配置");
-      const exportButton = make(documentObject, "button", { type: "button", dataset: { action: "export" } }, "导出日常预设");
-      const importInput = make(documentObject, "input", { type: "file", accept: "application/json,.json", dataset: { action: "import" } });
-      body.append(collapse, make(documentObject, "div", {}, "主题："), theme, refresh, exportButton, importInput);
+      const collapse = make2(documentObject, "label", { className: "vgen-nya-settings__check" });
+      collapse.append(make2(documentObject, "input", { type: "checkbox", checked: settings.autoCollapseDiscovery, dataset: { setting: "autoCollapseDiscovery" } }), documentObject.createTextNode(" 应用后自动折叠发现标签"));
+      const theme = make2(documentObject, "select", { dataset: { setting: "theme" } });
+      theme.append(make2(documentObject, "option", { value: "light", selected: snapshot.uiSettings.theme === "light" }, "浅色"), make2(documentObject, "option", { value: "dark", selected: snapshot.uiSettings.theme === "dark" }, "深色"));
+      const refresh = make2(documentObject, "button", { type: "button", dataset: { action: "refresh" } }, "刷新 Upload 配置");
+      const exportButton = make2(documentObject, "button", { type: "button", dataset: { action: "export" } }, "导出日常预设");
+      const importInput = make2(documentObject, "input", { type: "file", accept: "application/json,.json", dataset: { action: "import" } });
+      body.append(collapse, make2(documentObject, "div", {}, "主题："), theme, refresh, exportButton, importInput);
       const onChange = async (event) => {
         if (event.target.dataset.module) {
           const next = repository.read().uploadSettings;
@@ -1225,7 +1358,7 @@ ${summary}
           const blob = new Blob([JSON.stringify(repository.exportDaily(), null, 2)], { type: "application/json;charset=utf-8" });
           const view = documentObject.defaultView || globalThis;
           const url = view.URL.createObjectURL(blob);
-          const anchor = make(documentObject, "a", { href: url, download: `vgen-nya-upload-presets-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json` });
+          const anchor = make2(documentObject, "a", { href: url, download: `vgen-nya-upload-presets-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json` });
           body.append(anchor);
           anchor.click();
           anchor.remove();
@@ -1238,14 +1371,14 @@ ${summary}
       use(() => body.removeEventListener("click", onClick));
     };
   }
-  function createUploadSettingsNavigation(repository, baseNavigation) {
+  function createUploadSettingsNavigation(repository, baseNavigation, textPresetEngine = null) {
     return baseNavigation.map((item) => item.id !== "upload" ? item : {
       ...item,
       tabs: [
         { id: "combination", label: "组合预设", sections: [{ id: "combination", title: DOMAIN_LABELS.combinationPresets, render: renderPresetManager(repository, "combinationPresets") }] },
         { id: "text", label: "标题 / 描述", sections: [
-          { id: "title", title: DOMAIN_LABELS.titlePresets, render: renderPresetManager(repository, "titlePresets") },
-          { id: "description", title: DOMAIN_LABELS.descriptionPresets, render: renderPresetManager(repository, "descriptionPresets") }
+          { id: "title", title: DOMAIN_LABELS.titlePresets, render: textPresetEngine ? renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.uploadTitle, { contentLabel: "标题内容" }) : renderPresetManager(repository, "titlePresets") },
+          { id: "description", title: DOMAIN_LABELS.descriptionPresets, render: textPresetEngine ? renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.uploadDescription, { contentLabel: "Slate JSON" }) : renderPresetManager(repository, "descriptionPresets") }
         ] },
         { id: "discovery", label: "发现标签", sections: [{ id: "discovery", title: DOMAIN_LABELS.discoveryPresets, render: renderPresetManager(repository, "discoveryPresets") }] },
         { id: "search-tags", label: "搜索标签", sections: [{ id: "search-tags", title: DOMAIN_LABELS.searchTagGroups, render: renderPresetManager(repository, "searchTagGroups") }] },
@@ -1717,7 +1850,7 @@ ${summary}
   var CSS = `
 .vgen-nya-upload{margin:10px 0;padding:10px;border:1px solid #cfd8e3;border-radius:10px;background:#f8fbff;color:#253247;font:13px/1.4 system-ui,sans-serif}.vgen-nya-upload *{box-sizing:border-box}.vgen-nya-upload__head{display:flex;align-items:center;gap:8px}.vgen-nya-upload__head strong{flex:1}.vgen-nya-upload button,.vgen-nya-upload select{font:inherit}.vgen-nya-upload button{cursor:pointer}.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:9px}.vgen-nya-upload__row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-upload__row>label{min-width:72px;font-weight:600}.vgen-nya-upload__row select{min-width:160px;max-width:360px}.vgen-nya-upload__groups{display:grid;gap:6px}.vgen-nya-upload__group{border:1px solid #d9e1ea;border-radius:8px;overflow:hidden}.vgen-nya-upload__group summary{padding:6px 8px;cursor:pointer}.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:5px;padding:7px}.vgen-nya-upload__tag[aria-pressed=true]{background:#1e78ca;color:#fff}.vgen-nya-upload__status{min-height:1.3em;color:#55657a}.vgen-nya-upload[data-theme=dark]{background:#1f2935;color:#eef5ff;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] .vgen-nya-upload__group{border-color:#4b5b6d}
 `;
-  function make2(documentObject, tag, attributes = {}, text = "") {
+  function make3(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
       if (key === "className") node.className = value;
@@ -1737,7 +1870,7 @@ ${summary}
     return String(typeof value === "string" ? value : value?.tag || "").trim().toLocaleLowerCase();
   }
   var UploadAssistantSession = class {
-    constructor({ surface, repository, adapter = new VGenUploadAdapter(surface), MutationObserverClass = globalThis.MutationObserver, onInactive = null }) {
+    constructor({ surface, repository, textPresetEngine, adapter = new VGenUploadAdapter(surface), MutationObserverClass = globalThis.MutationObserver, onInactive = null }) {
       this.surface = surface;
       this.repository = repository;
       this.adapter = adapter;
@@ -1747,18 +1880,19 @@ ${summary}
       this.unsubscribe = null;
       this.renderQueued = false;
       this.onInactive = onInactive;
+      this.textPresetEngine = textPresetEngine;
     }
     mount() {
       if (this.root?.isConnected) return false;
       const documentObject = this.surface.ownerDocument;
-      this.root = make2(documentObject, "section", {
+      this.root = make3(documentObject, "section", {
         className: "vgen-nya-upload notranslate",
         dataset: { vgenNyaUi: "upload-assistant" },
         translate: false
       });
       this.root.addEventListener("click", (event) => this.onClick(event));
       this.root.addEventListener("change", (event) => this.onChange(event));
-      const style = make2(documentObject, "style");
+      const style = make3(documentObject, "style");
       style.textContent = CSS;
       this.root.append(style);
       const anchor = this.adapter.findTagInput?.()?.parentElement;
@@ -1794,35 +1928,35 @@ ${summary}
       const collapsed = snapshot.uploadSettings.collapsed;
       this.root.dataset.theme = snapshot.uiSettings.theme;
       this.root.replaceChildren(this.root.querySelector("style"));
-      const head = make2(documentObject, "div", { className: "vgen-nya-upload__head" });
+      const head = make3(documentObject, "div", { className: "vgen-nya-upload__head" });
       head.append(
-        make2(documentObject, "strong", {}, `Upload Assistant · ${native.tags.length}/${native.tagLimit}`),
-        make2(documentObject, "button", { type: "button", dataset: { action: "refresh" }, title: "仅刷新 Upload Assistant 配置" }, "↻"),
-        make2(documentObject, "button", { type: "button", dataset: { action: "collapse" }, "aria-expanded": String(!collapsed) }, collapsed ? "展开" : "折叠")
+        make3(documentObject, "strong", {}, `Upload Assistant · ${native.tags.length}/${native.tagLimit}`),
+        make3(documentObject, "button", { type: "button", dataset: { action: "refresh" }, title: "仅刷新 Upload Assistant 配置" }, "↻"),
+        make3(documentObject, "button", { type: "button", dataset: { action: "collapse" }, "aria-expanded": String(!collapsed) }, collapsed ? "展开" : "折叠")
       );
       this.root.append(head);
       if (collapsed) return;
-      const modules = make2(documentObject, "div", { className: "vgen-nya-upload__modules" });
+      const modules = make3(documentObject, "div", { className: "vgen-nya-upload__modules" });
       const settings = snapshot.uploadSettings.modules;
       if (settings.global) modules.append(this.presetRow(documentObject, "组合预设", "combination", snapshot.combinationPresets));
-      if (settings.title) modules.append(this.presetRow(documentObject, "标题", "title", snapshot.titlePresets));
-      if (settings.description) modules.append(this.presetRow(documentObject, "描述", "description", snapshot.descriptionPresets));
+      if (settings.title) modules.append(this.presetRow(documentObject, "标题", "title", snapshot.titlePresets, native.title));
+      if (settings.description) modules.append(this.presetRow(documentObject, "描述", "description", snapshot.descriptionPresets, native.description));
       if (settings.discovery) modules.append(this.presetRow(documentObject, "发现标签", "discovery", snapshot.discoveryPresets));
       if (settings.tags) {
-        const groups = make2(documentObject, "div", { className: "vgen-nya-upload__groups" });
+        const groups = make3(documentObject, "div", { className: "vgen-nya-upload__groups" });
         for (const [index, group] of snapshot.searchTagGroups.entries()) {
-          const details = make2(documentObject, "details", { className: "vgen-nya-upload__group", open: snapshot.uploadSettings.groupExpanded?.[group.id] ?? index === 0 });
+          const details = make3(documentObject, "details", { className: "vgen-nya-upload__group", open: snapshot.uploadSettings.groupExpanded?.[group.id] ?? index === 0 });
           const tags = Array.isArray(group.tags) ? group.tags : [];
           const count = tags.filter((tag) => selected.has(keyOfTag(tag))).length;
-          const summary = make2(documentObject, "summary", {}, `${group.name || "未命名"} ${count}/${tags.length}`);
-          const list = make2(documentObject, "div", { className: "vgen-nya-upload__tags" });
+          const summary = make3(documentObject, "summary", {}, `${group.name || "未命名"} ${count}/${tags.length}`);
+          const list = make3(documentObject, "div", { className: "vgen-nya-upload__tags" });
           list.append(
-            make2(documentObject, "button", { type: "button", dataset: { action: "group-add", groupId: group.id } }, "全部添加"),
-            make2(documentObject, "button", { type: "button", dataset: { action: "group-remove", groupId: group.id } }, "全部删除")
+            make3(documentObject, "button", { type: "button", dataset: { action: "group-add", groupId: group.id } }, "全部添加"),
+            make3(documentObject, "button", { type: "button", dataset: { action: "group-remove", groupId: group.id } }, "全部删除")
           );
           for (const item of tags) {
             const value = typeof item === "string" ? item : item.tag;
-            list.append(make2(documentObject, "button", {
+            list.append(make3(documentObject, "button", {
               type: "button",
               className: "vgen-nya-upload__tag",
               dataset: { action: "tag", tag: value },
@@ -1840,18 +1974,19 @@ ${summary}
         }
         modules.append(groups);
       }
-      modules.append(make2(documentObject, "div", { className: "vgen-nya-upload__status", dataset: { role: "status" } }));
+      modules.append(make3(documentObject, "div", { className: "vgen-nya-upload__status", dataset: { role: "status" } }));
       this.root.append(modules);
     }
-    presetRow(documentObject, label, kind, presets) {
-      const row = make2(documentObject, "div", { className: "vgen-nya-upload__row" });
-      const select = make2(documentObject, "select", { dataset: { kind }, "aria-label": label });
-      select.append(make2(documentObject, "option", { value: "" }, `选择${label}`));
-      for (const preset of presets) select.append(make2(documentObject, "option", { value: preset.id }, preset.name || "未命名"));
+    presetRow(documentObject, label, kind, presets, currentValue = void 0) {
+      const row = make3(documentObject, "div", { className: "vgen-nya-upload__row" });
+      const select = make3(documentObject, "select", { dataset: { kind }, "aria-label": label });
+      select.append(make3(documentObject, "option", { value: "" }, `选择${label}`));
+      for (const preset of presets) select.append(make3(documentObject, "option", { value: preset.id }, preset.name || "未命名"));
+      if (currentValue !== void 0) select.value = String(presets.find((preset) => presetValue(preset, kind) === currentValue)?.id || "");
       row.append(
-        make2(documentObject, "label", {}, label),
+        make3(documentObject, "label", {}, label),
         select,
-        make2(documentObject, "button", { type: "button", dataset: { action: "save-current", kind } }, "保存当前")
+        make3(documentObject, "button", { type: "button", dataset: { action: "save-current", kind } }, "保存当前")
       );
       return row;
     }
@@ -1872,6 +2007,9 @@ ${summary}
         else if (select.dataset.kind === "discovery") {
           await this.adapter.applyDiscovery(preset);
           if (snapshot.uploadSettings.autoCollapseDiscovery) this.adapter.collapseDiscovery?.();
+        } else if (this.textPresetEngine) {
+          const context = select.dataset.kind === "title" ? TEXT_PRESET_CONTEXTS.uploadTitle : TEXT_PRESET_CONTEXTS.uploadDescription;
+          await this.textPresetEngine.select(context, preset.id, this.adapter);
         } else await this.adapter.applyText(select.dataset.kind, presetValue(preset, select.dataset.kind));
         message = `已应用“${preset.name || "未命名"}”`;
       } catch (error) {
@@ -1907,8 +2045,11 @@ ${summary}
         const values = snapshot[domain];
         if (button.dataset.kind === "combination") values.push({ id, name: name.trim(), title: native.title, description: native.description, discoverySchema: native.discoverySchema || [], discoveryValues: native.discoveryValues, tags: native.tags });
         else if (button.dataset.kind === "discovery") values.push({ id, name: name.trim(), schema: native.discoverySchema || [], values: native.discoveryValues });
-        else values.push({ id, name: name.trim(), value: native[button.dataset.kind] });
-        this.repository.writeDomain(domain, values);
+        else if (this.textPresetEngine) {
+          const context = button.dataset.kind === "title" ? TEXT_PRESET_CONTEXTS.uploadTitle : TEXT_PRESET_CONTEXTS.uploadDescription;
+          this.textPresetEngine.create(context, { id, name: name.trim(), payload: native[button.dataset.kind] });
+        } else values.push({ id, name: name.trim(), value: native[button.dataset.kind] });
+        if (button.dataset.kind === "combination" || button.dataset.kind === "discovery" || !this.textPresetEngine) this.repository.writeDomain(domain, values);
         this.setStatus(`已保存“${name.trim()}”`);
         return;
       }
@@ -1938,11 +2079,12 @@ ${summary}
     }
   };
   var UploadAssistantRuntime = class {
-    constructor({ repository, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory = (surface) => new VGenUploadAdapter(surface) }) {
+    constructor({ repository, textPresetEngine, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory = (surface) => new VGenUploadAdapter(surface) }) {
       this.repository = repository;
       this.documentObject = documentObject;
       this.MutationObserverClass = MutationObserverClass;
       this.adapterFactory = adapterFactory;
+      this.textPresetEngine = textPresetEngine;
       this.sessions = /* @__PURE__ */ new Map();
       this.portalObserver = null;
       this.probes = /* @__PURE__ */ new Map();
@@ -1978,6 +2120,7 @@ ${summary}
         const session = new UploadAssistantSession({
           surface,
           repository: this.repository,
+          textPresetEngine: this.textPresetEngine,
           adapter,
           MutationObserverClass: this.MutationObserverClass,
           onInactive: () => {
@@ -2526,12 +2669,58 @@ ${summary}
     }
   };
 
+  // src/presets/native-text-target.js
+  function reactHandler(element2, name) {
+    let node = element2;
+    for (let nodeDepth = 0; node && nodeDepth < 6; nodeDepth += 1, node = node.parentElement) {
+      const propsKey = Object.getOwnPropertyNames(node).find((key) => key.startsWith("__reactProps$"));
+      const handler = propsKey ? node[propsKey]?.[name] : null;
+      if (typeof handler === "function") return handler;
+    }
+    return null;
+  }
+  function nativeValueSetter(element2) {
+    let prototype = element2;
+    while (prototype) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+      if (typeof descriptor?.set === "function") return descriptor.set;
+      prototype = Object.getPrototypeOf(prototype);
+    }
+    return null;
+  }
+  var NativeTextTarget = class {
+    constructor(element2) {
+      if (!element2) throw new TypeError("Native text target requires an element");
+      this.element = element2;
+    }
+    read() {
+      return typeof this.element.value === "string" ? this.element.value : String(this.element.textContent || "");
+    }
+    async fillText(text, { replace = false } = {}) {
+      const value = String(text ?? "");
+      const current = this.read();
+      if (current && current !== value && !replace) return { status: "requires-confirmation", current };
+      const handler = reactHandler(this.element, "onChange") || reactHandler(this.element, "onInput");
+      if ("value" in this.element) {
+        const setter = nativeValueSetter(this.element);
+        if (setter) setter.call(this.element, value);
+        else this.element.value = value;
+      } else this.element.textContent = value;
+      const view = this.element.ownerDocument?.defaultView || globalThis;
+      const EventClass = view.Event || globalThis.Event;
+      if (handler) await handler({ target: this.element, currentTarget: this.element, type: "change" });
+      else this.element.dispatchEvent?.(new EventClass("input", { bubbles: true }));
+      return { status: "filled", value };
+    }
+  };
+
   // src/chat/stream-chat-adapter.js
   var CHAT_SESSION_SELECTOR = ".str-chat__channel";
   var MESSAGES_SURFACE_SELECTOR = ".str-chat__channel-list, .str-chat__channel";
   var CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
   var MESSAGE_SELECTOR = ".str-chat__message, .str-chat__message-simple";
   var PREVIEW_SELECTOR = '.str-chat__channel-preview, [data-testid*="channel-preview"], [class*="ChatChannelListPreview"]';
+  var COMPOSER_SELECTOR = 'textarea.str-chat__textarea__textarea, textarea.str-chat__message-textarea, .str-chat__message-textarea textarea, .str-chat__message-textarea [contenteditable="true"], textarea[data-testid="message-input"], [contenteditable="true"][data-testid*="message-input"], [class*="MessageInput"] textarea, [class*="MessageInput"] [contenteditable="true"]';
   function ownReactValue2(element2, prefix) {
     const key = Object.getOwnPropertyNames(element2 || {}).find((name) => name.startsWith(prefix));
     return key ? element2[key] : null;
@@ -2670,6 +2859,18 @@ ${summary}
     }
     conversationId() {
       return channelCid(this.findChannel());
+    }
+    findComposer() {
+      return this.surface?.querySelector?.(COMPOSER_SELECTOR) || null;
+    }
+    readComposer() {
+      const composer = this.findComposer();
+      return composer ? new NativeTextTarget(composer).read() : "";
+    }
+    fillComposer(payload, options) {
+      const composer = this.findComposer();
+      if (!composer) throw new Error("VGen Chat composer is not ready");
+      return new NativeTextTarget(composer).fillText(payload, options);
     }
     refresh({ settings, readGate, onManualRead } = {}) {
       const channel = this.findChannel();
@@ -2817,6 +3018,104 @@ ${summary}
     }
   };
 
+  // src/chat/quick-reply.js
+  var CONTEXT = TEXT_PRESET_CONTEXTS.chatQuickReply;
+  function make4(documentObject, tag, attributes = {}, text = "") {
+    const node = documentObject.createElement(tag);
+    for (const [key, value] of Object.entries(attributes)) {
+      if (key === "className") node.className = value;
+      else if (key === "dataset") Object.assign(node.dataset, value);
+      else if (key in node) node[key] = value;
+      else node.setAttribute(key, value);
+    }
+    if (text) node.textContent = text;
+    return node;
+  }
+  var QuickReplyController = class {
+    constructor({ engine, adapter } = {}) {
+      this.engine = engine;
+      this.adapter = adapter;
+      this.root = null;
+      this.composer = null;
+      this.onInput = () => {
+        this.engine.clearSelection(CONTEXT);
+        this.render();
+      };
+      this.onClick = (event) => this.#click(event);
+      this.unsubscribe = null;
+    }
+    refresh() {
+      if (!this.engine) return false;
+      const composer = this.adapter.findComposer?.();
+      if (!composer) {
+        this.cleanup();
+        return false;
+      }
+      if (composer !== this.composer) {
+        this.cleanup();
+        this.composer = composer;
+        const documentObject = composer.ownerDocument;
+        this.root = make4(documentObject, "div", {
+          className: "vgen-nya-quick-replies notranslate",
+          dataset: { vgenNyaUi: "quick-replies" },
+          translate: false
+        });
+        this.root.addEventListener("click", this.onClick);
+        this.composer.addEventListener("input", this.onInput);
+        this.unsubscribe = this.engine.subscribe(({ context }) => {
+          if (context === CONTEXT) this.render();
+        });
+        const anchor = composer.closest?.('.str-chat__message-input, [class*="MessageInput"]') || composer.parentElement;
+        (anchor || composer).append(this.root);
+      }
+      this.render();
+      return true;
+    }
+    render() {
+      if (!this.root) return;
+      const documentObject = this.root.ownerDocument;
+      const selected = this.engine.selectedId(CONTEXT);
+      const items = this.engine.list(CONTEXT);
+      this.root.replaceChildren();
+      if (!items.length) {
+        this.root.append(make4(documentObject, "span", { className: "vgen-nya-preset-empty" }, "暂无快捷回复"));
+        return;
+      }
+      for (const preset of items) {
+        this.root.append(make4(documentObject, "button", {
+          type: "button",
+          className: "vgen-nya-preset-chip",
+          dataset: { presetId: preset.id },
+          title: this.engine.preview(CONTEXT, preset.id, 180),
+          "aria-pressed": String(selected === String(preset.id))
+        }, preset.name));
+      }
+    }
+    ownsMutation(record) {
+      return Boolean(this.root && (record.target === this.root || this.root.contains?.(record.target)));
+    }
+    async #click(event) {
+      const button = event.target?.closest?.("button[data-preset-id]");
+      if (!button || !this.root?.contains(button)) return;
+      let result = await this.engine.select(CONTEXT, button.dataset.presetId, this.adapter);
+      if (result.status === "requires-confirmation") {
+        const confirmed = this.root.ownerDocument.defaultView?.confirm?.("Composer 已有内容。确认替换为该快捷回复吗？") === true;
+        if (!confirmed) return;
+        result = await this.engine.select(CONTEXT, button.dataset.presetId, this.adapter, { replace: true });
+      }
+      if (result.status === "filled") this.render();
+    }
+    cleanup() {
+      this.composer?.removeEventListener("input", this.onInput);
+      this.root?.removeEventListener("click", this.onClick);
+      this.root?.remove();
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+      this.root = null;
+      this.composer = null;
+    }
+  };
+
   // src/chat/chat-assistant.js
   var CHAT_PORTAL_SELECTOR2 = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
   var CHAT_CSS = `
@@ -2830,9 +3129,10 @@ ${summary}
 .vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover,.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
 [data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
 [data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
+.vgen-nya-quick-replies,.vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-preset-chip[aria-pressed="true"]{border-color:#3b82f6;background:#dbeafe;color:#174b8a}.vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}
 `;
   var ChatAssistantSession = class {
-    constructor({ surface, repository, readGate, adapter, MutationObserverClass = globalThis.MutationObserver } = {}) {
+    constructor({ surface, repository, readGate, adapter, textPresetEngine, MutationObserverClass = globalThis.MutationObserver } = {}) {
       this.surface = surface;
       this.repository = repository;
       this.readGate = readGate;
@@ -2841,6 +3141,7 @@ ${summary}
       this.observer = null;
       this.cid = null;
       this.mounted = false;
+      this.quickReplies = textPresetEngine ? new QuickReplyController({ engine: textPresetEngine, adapter }) : null;
     }
     mount() {
       if (this.mounted) return false;
@@ -2849,7 +3150,7 @@ ${summary}
       if (this.MutationObserverClass) {
         this.observer = new this.MutationObserverClass((records) => {
           const onlyOwnInsertions = records.length > 0 && records.every((record) => (record.addedNodes?.length || 0) > 0 && [...record.addedNodes].every((node) => node.dataset?.vgenNyaUi));
-          if (onlyOwnInsertions) return;
+          if (onlyOwnInsertions || records.every((record) => this.quickReplies?.ownsMutation(record))) return;
           this.refresh();
         });
         this.observer.observe(this.surface, { childList: true, subtree: true });
@@ -2865,6 +3166,7 @@ ${summary}
         onManualRead: (cid, channel) => this.readGate.manualRelease(cid, (body) => channel.markRead?.(body))
       });
       this.cid = result?.cid || null;
+      this.quickReplies?.refresh();
       return result;
     }
     unmount() {
@@ -2872,19 +3174,21 @@ ${summary}
       this.observer?.disconnect();
       this.observer = null;
       this.adapter.cleanup?.();
+      this.quickReplies?.cleanup();
       this.cid = null;
       this.mounted = false;
       return true;
     }
   };
   var ChatAssistantRuntime = class {
-    constructor({ repository, readGate, networkHooks, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory } = {}) {
+    constructor({ repository, readGate, networkHooks, textPresetEngine, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, adapterFactory } = {}) {
       this.repository = repository;
       this.readGate = readGate;
       this.networkHooks = networkHooks;
       this.documentObject = documentObject;
       this.MutationObserverClass = MutationObserverClass;
       this.adapterFactory = adapterFactory || ((surface) => new StreamChatAdapter(surface, { documentObject, MutationObserverClass }));
+      this.textPresetEngine = textPresetEngine;
       this.sessions = /* @__PURE__ */ new Map();
       this.probes = /* @__PURE__ */ new Map();
       this.portalObserver = null;
@@ -2949,7 +3253,7 @@ ${summary}
         if (this.sessions.has(surface) || !surface.isConnected) continue;
         if ([...this.sessions.keys()].some((existing) => existing.contains?.(surface))) continue;
         const adapter = this.adapterFactory(surface);
-        const session = new ChatAssistantSession({ surface, repository: this.repository, readGate: this.readGate, adapter, MutationObserverClass: this.MutationObserverClass });
+        const session = new ChatAssistantSession({ surface, repository: this.repository, readGate: this.readGate, adapter, textPresetEngine: this.textPresetEngine, MutationObserverClass: this.MutationObserverClass });
         session.mount();
         this.sessions.set(surface, session);
         mounted += 1;
@@ -3034,7 +3338,7 @@ ${summary}
     const value = fields.map((field) => item?.[field]).find(Boolean);
     return value && (!latest || Date.parse(value) > Date.parse(latest)) ? value : latest;
   }, "");
-  var make3 = (documentObject, tag, className = "", text = "") => {
+  var make5 = (documentObject, tag, className = "", text = "") => {
     const node = documentObject.createElement(tag);
     node.className = className;
     node.textContent = text;
@@ -3120,7 +3424,7 @@ ${summary}
       const host = mount.parent || mount;
       const before = mount.before || null;
       this.host = host;
-      this.panel = make3(this.documentObject, "section", "vgen-nya-clients notranslate");
+      this.panel = make5(this.documentObject, "section", "vgen-nya-clients notranslate");
       this.panel.dataset.vgenNyaUi = "frequent-clients";
       this.panel.translate = false;
       this.panel.setAttribute("aria-label", "常用访问");
@@ -3175,28 +3479,28 @@ ${summary}
       this.panel.dataset.collapsed = String(clientsSettings.collapsed);
       this.panel.style.cssText = `--vgen-nya-clients-min-height:${clientsSettings.minHeight}px;--vgen-nya-clients-row-height:${clientsSettings.rowHeight}px`;
       this.panel.replaceChildren();
-      const header = make3(this.documentObject, "header", "vgen-nya-clients__header");
+      const header = make5(this.documentObject, "header", "vgen-nya-clients__header");
       header.append(
-        make3(this.documentObject, "strong", "", "常用访问"),
+        make5(this.documentObject, "strong", "", "常用访问"),
         this.#button("refresh", "↻", "刷新资料"),
         this.#button("collapse", clientsSettings.collapsed ? "＋" : "－", clientsSettings.collapsed ? "展开" : "折叠")
       );
       this.panel.append(header);
-      const list = make3(this.documentObject, "div", "vgen-nya-clients__list");
+      const list = make5(this.documentObject, "div", "vgen-nya-clients__list");
       list.hidden = clientsSettings.collapsed;
-      if (!clients.length) list.append(make3(this.documentObject, "p", "vgen-nya-clients__empty", "在设置 → 常用访问中添加客户"));
+      if (!clients.length) list.append(make5(this.documentObject, "p", "vgen-nya-clients__empty", "在设置 → 常用访问中添加客户"));
       clients.forEach((client, index) => list.append(this.#row(client, index)));
       this.panel.append(list);
     }
     #button(action, text, title) {
-      const button = make3(this.documentObject, "button", "", text);
+      const button = make5(this.documentObject, "button", "", text);
       button.type = "button";
       button.dataset.action = action;
       button.title = title;
       return button;
     }
     #row(client, index) {
-      const row = make3(this.documentObject, "div", "vgen-nya-clients__row");
+      const row = make5(this.documentObject, "div", "vgen-nya-clients__row");
       row.dataset.clientId = client.id;
       row.dataset.index = String(index);
       row.draggable = true;
@@ -3204,10 +3508,10 @@ ${summary}
       const quick = this.#button("quick-chat", "", `私信 @${client.username}`);
       quick.className = "vgen-nya-clients__avatar";
       quick.dataset.clientId = client.id;
-      const avatar = make3(this.documentObject, "img");
+      const avatar = make5(this.documentObject, "img");
       avatar.alt = "";
       avatar.src = client.avatarURL || "";
-      const badge = make3(this.documentObject, "span", "vgen-nya-clients__chat-badge", "💬");
+      const badge = make5(this.documentObject, "span", "vgen-nya-clients__chat-badge", "💬");
       badge.setAttribute("aria-hidden", "true");
       quick.append(avatar, badge);
       quick.addEventListener("click", (event) => {
@@ -3215,17 +3519,17 @@ ${summary}
         event.stopPropagation();
         void this.#openQuickChat(client.id, quick);
       });
-      const text = make3(this.documentObject, "a", "vgen-nya-clients__link");
+      const text = make5(this.documentObject, "a", "vgen-nya-clients__link");
       text.href = client.url;
       text.target = "_blank";
       text.rel = "noopener noreferrer";
-      const primary = make3(this.documentObject, "span", "vgen-nya-clients__primary", client.note || client.displayName || `@${client.username}`);
-      const secondary = make3(this.documentObject, "span", "vgen-nya-clients__secondary", `@${client.username}`);
+      const primary = make5(this.documentObject, "span", "vgen-nya-clients__primary", client.note || client.displayName || `@${client.username}`);
+      const secondary = make5(this.documentObject, "span", "vgen-nya-clients__secondary", `@${client.username}`);
       const updates = [client.lastServiceUpdate && `服务 ${this.#date(client.lastServiceUpdate)}`, client.lastPortfolioUpdate && `作品 ${this.#date(client.lastPortfolioUpdate)}`].filter(Boolean).join(" · ");
-      const detail = make3(this.documentObject, "span", "vgen-nya-clients__updates", updates);
+      const detail = make5(this.documentObject, "span", "vgen-nya-clients__updates", updates);
       text.append(primary, secondary, detail);
       if (client.announcementMessage) {
-        const notice = make3(this.documentObject, "span", "vgen-nya-clients__notice", `通知：${client.announcementMessage}`);
+        const notice = make5(this.documentObject, "span", "vgen-nya-clients__notice", `通知：${client.announcementMessage}`);
         notice.title = client.announcementMessage;
         row.append(quick, text, notice);
       } else row.append(quick, text);
@@ -3375,7 +3679,7 @@ ${summary}
   };
 
   // src/settings/chat-settings.js
-  function make4(documentObject, tag, attributes = {}, text = "") {
+  function make6(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
       if (key === "dataset") Object.assign(node.dataset, value);
@@ -3386,8 +3690,8 @@ ${summary}
     return node;
   }
   function check(documentObject, label, checked, setting) {
-    const row = make4(documentObject, "label", { className: "vgen-nya-settings__check" });
-    row.append(make4(documentObject, "input", { type: "checkbox", checked, dataset: { setting } }), documentObject.createTextNode(` ${label}`));
+    const row = make6(documentObject, "label", { className: "vgen-nya-settings__check" });
+    row.append(make6(documentObject, "input", { type: "checkbox", checked, dataset: { setting } }), documentObject.createTextNode(` ${label}`));
     return row;
   }
   function renderChat(repository, fields) {
@@ -3415,10 +3719,10 @@ ${summary}
         body.replaceChildren(
           check(documentObject, "启用常用访问面板", settings.enabled, "enabled"),
           check(documentObject, "默认折叠", settings.collapsed, "collapsed"),
-          make4(documentObject, "label", {}, "面板最小高度 "),
-          make4(documentObject, "input", { type: "number", min: 120, max: 520, value: settings.minHeight, dataset: { setting: "minHeight" } }),
-          make4(documentObject, "label", {}, " 行高 "),
-          make4(documentObject, "input", { type: "number", min: 42, max: 88, value: settings.rowHeight, dataset: { setting: "rowHeight" } })
+          make6(documentObject, "label", {}, "面板最小高度 "),
+          make6(documentObject, "input", { type: "number", min: 120, max: 520, value: settings.minHeight, dataset: { setting: "minHeight" } }),
+          make6(documentObject, "label", {}, " 行高 "),
+          make6(documentObject, "input", { type: "number", min: 42, max: 88, value: settings.rowHeight, dataset: { setting: "rowHeight" } })
         );
       };
       const onChange = (event) => {
@@ -3438,21 +3742,21 @@ ${summary}
       const render = () => {
         body.replaceChildren();
         repository.read().clients.forEach((client, index, clients) => {
-          const row = make4(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
-          const note = make4(documentObject, "input", { value: client.note, placeholder: `@${client.username}`, dataset: { role: "note", id: client.id } });
+          const row = make6(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
+          const note = make6(documentObject, "input", { value: client.note, placeholder: `@${client.username}`, dataset: { role: "note", id: client.id } });
           row.append(
             note,
-            make4(documentObject, "button", { type: "button", disabled: index === 0, dataset: { action: "up", index } }, "↑"),
-            make4(documentObject, "button", { type: "button", disabled: index === clients.length - 1, dataset: { action: "down", index } }, "↓"),
-            make4(documentObject, "button", { type: "button", dataset: { action: "delete", id: client.id } }, "删除")
+            make6(documentObject, "button", { type: "button", disabled: index === 0, dataset: { action: "up", index } }, "↑"),
+            make6(documentObject, "button", { type: "button", disabled: index === clients.length - 1, dataset: { action: "down", index } }, "↓"),
+            make6(documentObject, "button", { type: "button", dataset: { action: "delete", id: client.id } }, "删除")
           );
           body.append(row);
         });
-        const add = make4(documentObject, "div", { className: "vgen-nya-settings__toolbar" });
+        const add = make6(documentObject, "div", { className: "vgen-nya-settings__toolbar" });
         add.append(
-          make4(documentObject, "input", { placeholder: "VGen username", dataset: { role: "username" } }),
-          make4(documentObject, "input", { placeholder: "备注（可选）", dataset: { role: "new-note" } }),
-          make4(documentObject, "button", { type: "button", dataset: { action: "add" } }, "添加")
+          make6(documentObject, "input", { placeholder: "VGen username", dataset: { role: "username" } }),
+          make6(documentObject, "input", { placeholder: "备注（可选）", dataset: { role: "new-note" } }),
+          make6(documentObject, "button", { type: "button", dataset: { action: "add" } }, "添加")
         );
         body.append(add);
       };
@@ -3492,13 +3796,13 @@ ${summary}
   }
   function renderDiagnostics(diagnostics) {
     return ({ documentObject, body, use }) => {
-      const status = make4(documentObject, "p");
+      const status = make6(documentObject, "p");
       const render = () => {
         status.textContent = diagnostics.active ? `运行中 · ${diagnostics.events.length} events` : "已停止；无诊断网络 hook";
       };
-      const start2 = make4(documentObject, "button", { type: "button", dataset: { action: "start" } }, "启动诊断");
-      const stop = make4(documentObject, "button", { type: "button", dataset: { action: "stop" } }, "停止诊断");
-      const exportButton = make4(documentObject, "button", { type: "button", dataset: { action: "export" } }, "导出报告");
+      const start2 = make6(documentObject, "button", { type: "button", dataset: { action: "start" } }, "启动诊断");
+      const stop = make6(documentObject, "button", { type: "button", dataset: { action: "stop" } }, "停止诊断");
+      const exportButton = make6(documentObject, "button", { type: "button", dataset: { action: "export" } }, "导出报告");
       body.replaceChildren(status, start2, stop, exportButton);
       const onClick = (event) => {
         const action = event.target?.dataset?.action;
@@ -3508,7 +3812,7 @@ ${summary}
           const blob = new Blob([JSON.stringify(diagnostics.snapshot(), null, 2)], { type: "application/json;charset=utf-8" });
           const view = documentObject.defaultView || globalThis;
           const url = view.URL.createObjectURL(blob);
-          const anchor = make4(documentObject, "a", { href: url, download: `vgen-nya-chat-diagnostics-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.json` });
+          const anchor = make6(documentObject, "a", { href: url, download: `vgen-nya-chat-diagnostics-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.json` });
           body.append(anchor);
           anchor.click();
           anchor.remove();
@@ -3521,7 +3825,7 @@ ${summary}
       render();
     };
   }
-  function createChatSettingsNavigation(repository, diagnostics, baseNavigation) {
+  function createChatSettingsNavigation(repository, diagnostics, baseNavigation, textPresetEngine = null) {
     return baseNavigation.map((item) => {
       if (item.id === "chat") return {
         ...item,
@@ -3536,7 +3840,8 @@ ${summary}
           { id: "read-control", label: "已读控制", sections: [{ id: "read-control", title: "服务器已读边界", render: renderChat(repository, [
             ["keepUnread", "保持服务器未读，手动释放"],
             ["reactionMarkRead", "Reaction 成功后标记已读"]
-          ]) }] }
+          ]) }] },
+          ...textPresetEngine ? [{ id: "quick-reply", label: "快捷回复", sections: [{ id: "quick-reply", title: "Chat Quick Reply", render: renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.chatQuickReply, { contentLabel: "回复内容" }) }] }] : []
         ]
       };
       if (item.id === "clients") return {
@@ -3554,27 +3859,526 @@ ${summary}
     });
   }
 
+  // src/settings/order-settings.js
+  function createOrderTextPresetNavigation(engine, baseNavigation) {
+    return baseNavigation.map((item) => item.id !== "orders" ? item : {
+      ...item,
+      tabs: [{
+        id: "text-presets",
+        label: "文本预设",
+        sections: [
+          { id: "final-delivery", title: "Final Delivery", description: "只填入，不交付。真实输入区等待安全订单状态验证。", render: renderTextPresetManager(engine, TEXT_PRESET_CONTEXTS.finalDelivery, { contentLabel: "交付文本" }) },
+          { id: "private-note", title: "Private Note", description: "只填入 Note to self，不调用保存。", render: renderTextPresetManager(engine, TEXT_PRESET_CONTEXTS.privateNote, { contentLabel: "Private Note" }) }
+        ]
+      }]
+    });
+  }
+
+  // src/presets/text-preset-store.js
+  var TEXT_PRESET_KEYS = Object.freeze({
+    [TEXT_PRESET_CONTEXTS.chatQuickReply]: CONFIG_KEYS.chatQuickReplyPresets,
+    [TEXT_PRESET_CONTEXTS.privateNote]: CONFIG_KEYS.privateNotePresets,
+    [TEXT_PRESET_CONTEXTS.finalDelivery]: CONFIG_KEYS.finalDeliveryPresets
+  });
+  var TextPresetStore = class {
+    constructor({ store, uploadRepository } = {}) {
+      this.store = store;
+      this.uploadRepository = uploadRepository;
+      this.listeners = /* @__PURE__ */ new Set();
+      this.unsubscribeUpload = uploadRepository?.subscribe?.(() => this.#emit("upload")) || null;
+    }
+    read(context) {
+      if (context === TEXT_PRESET_CONTEXTS.uploadTitle) return this.#upload("titlePresets");
+      if (context === TEXT_PRESET_CONTEXTS.uploadDescription) return this.#upload("descriptionPresets");
+      const key = TEXT_PRESET_KEYS[context];
+      if (!key) throw new TypeError(`Unknown text preset context: ${context}`);
+      const value = this.store.read(key, []);
+      return Array.isArray(value) ? cloneStorageValue(value) : [];
+    }
+    write(context, value) {
+      if (!Array.isArray(value)) throw new TypeError("Text preset collection must be an array");
+      const next = cloneStorageValue(value);
+      if (context === TEXT_PRESET_CONTEXTS.uploadTitle) return this.uploadRepository.writeDomain("titlePresets", next).titlePresets;
+      if (context === TEXT_PRESET_CONTEXTS.uploadDescription) return this.uploadRepository.writeDomain("descriptionPresets", next).descriptionPresets;
+      const key = TEXT_PRESET_KEYS[context];
+      if (!key) throw new TypeError(`Unknown text preset context: ${context}`);
+      const stored = this.store.writeVerified(key, next, Array.isArray);
+      this.#emit(context);
+      return cloneStorageValue(stored);
+    }
+    subscribe(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    dispose() {
+      this.unsubscribeUpload?.();
+      this.unsubscribeUpload = null;
+      this.listeners.clear();
+    }
+    #upload(domain) {
+      const value = this.uploadRepository?.read?.()[domain];
+      return Array.isArray(value) ? cloneStorageValue(value) : [];
+    }
+    #emit(context) {
+      for (const listener of this.listeners) listener({ context });
+    }
+  };
+
+  // src/presets/text-preset-engine.js
+  var TEXT_PRESET_EXPORT_SCHEMA = "vgen-nya.text-presets";
+  var TEXT_PRESET_EXPORT_VERSION = 1;
+  function defaultId() {
+    return globalThis.crypto?.randomUUID?.() || `preset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  var TextPresetEngine = class {
+    constructor({ store, registry, idFactory = defaultId } = {}) {
+      this.store = store;
+      this.registry = registry;
+      this.idFactory = idFactory;
+      this.selected = /* @__PURE__ */ new Map();
+    }
+    list(context) {
+      return this.#inspect(context).valid;
+    }
+    #inspect(context) {
+      const adapter = this.registry.get(context);
+      const raw = this.store.read(context);
+      const result = [];
+      const ids = /* @__PURE__ */ new Set();
+      for (const item of raw) {
+        const id = String(item?.id || "").trim();
+        if (!id || ids.has(id) || typeof item?.name !== "string") continue;
+        try {
+          const payload = adapter.deserialize(item);
+          if (!adapter.validate(payload)) continue;
+        } catch {
+          continue;
+        }
+        ids.add(id);
+        result.push(cloneStorageValue(item));
+      }
+      return { raw, valid: result, hasInvalid: result.length !== raw.length };
+    }
+    #writableList(context) {
+      const inspected = this.#inspect(context);
+      if (inspected.hasInvalid) throw new Error("Text preset collection contains invalid or duplicate data; source was left unchanged");
+      return inspected.valid;
+    }
+    get(context, id) {
+      return this.list(context).find((item) => String(item.id) === String(id)) || null;
+    }
+    create(context, { id = this.idFactory(), name, payload } = {}) {
+      const items = this.#writableList(context);
+      const normalizedId = String(id || "").trim();
+      const normalizedName = String(name || "").trim();
+      if (!normalizedId || items.some((item) => String(item.id) === normalizedId)) throw new Error("Text preset id must be unique");
+      if (!normalizedName) throw new Error("Text preset name is required");
+      const preset = this.registry.get(context).serialize(payload, { id: normalizedId, name: normalizedName });
+      this.store.write(context, [...items, preset]);
+      return cloneStorageValue(preset);
+    }
+    update(context, id, changes = {}) {
+      const items = this.#writableList(context);
+      const index = items.findIndex((item) => String(item.id) === String(id));
+      if (index < 0) throw new Error("Text preset was not found");
+      const current = items[index];
+      const name = changes.name === void 0 ? current.name : String(changes.name).trim();
+      if (!name) throw new Error("Text preset name is required");
+      const adapter = this.registry.get(context);
+      const payload = changes.payload === void 0 ? adapter.deserialize(current) : changes.payload;
+      items[index] = adapter.serialize(payload, { ...current, id: current.id, name });
+      this.store.write(context, items);
+      return cloneStorageValue(items[index]);
+    }
+    delete(context, id) {
+      const items = this.#writableList(context);
+      const next = items.filter((item) => String(item.id) !== String(id));
+      if (next.length === items.length) return false;
+      this.store.write(context, next);
+      if (this.selected.get(context) === String(id)) this.selected.delete(context);
+      return true;
+    }
+    reorder(context, from, to) {
+      const items = this.#writableList(context);
+      if (![from, to].every(Number.isInteger) || from < 0 || to < 0 || from >= items.length || to >= items.length) throw new RangeError("Invalid text preset order");
+      const [item] = items.splice(from, 1);
+      items.splice(to, 0, item);
+      this.store.write(context, items);
+      return items;
+    }
+    preview(context, id, maximum) {
+      const preset = this.get(context, id);
+      if (!preset) return "";
+      const adapter = this.registry.get(context);
+      return adapter.preview(adapter.deserialize(preset), maximum);
+    }
+    async select(context, id, target, options = {}) {
+      const preset = this.get(context, id);
+      if (!preset) throw new Error("Text preset was not found");
+      const adapter = this.registry.get(context);
+      const payload = adapter.deserialize(preset);
+      if (!adapter.validate(payload)) throw new TypeError("Text preset payload is invalid");
+      const result = await adapter.fill(payload, target, options);
+      if (result?.status === "requires-confirmation") return { ...result, preset: cloneStorageValue(preset) };
+      this.selected.set(context, String(id));
+      return { status: "filled", preset: cloneStorageValue(preset), result };
+    }
+    clearSelection(context) {
+      this.selected.delete(context);
+    }
+    selectedId(context) {
+      return this.selected.get(context) || null;
+    }
+    exportCollection(context) {
+      return cloneStorageValue(this.list(context));
+    }
+    exportDocument(context, exportedAt = (/* @__PURE__ */ new Date()).toISOString()) {
+      this.registry.get(context);
+      return { schema: TEXT_PRESET_EXPORT_SCHEMA, version: TEXT_PRESET_EXPORT_VERSION, context, exportedAt, presets: this.exportCollection(context) };
+    }
+    prepareImport(input) {
+      let document2;
+      try {
+        document2 = typeof input === "string" ? JSON.parse(input) : cloneStorageValue(input);
+      } catch (error) {
+        throw new TypeError("Text preset import is not valid JSON", { cause: error });
+      }
+      if (document2?.schema !== TEXT_PRESET_EXPORT_SCHEMA || document2?.version !== TEXT_PRESET_EXPORT_VERSION) throw new TypeError("Unsupported text preset export schema");
+      const adapter = this.registry.get(document2.context);
+      if (!Array.isArray(document2.presets)) throw new TypeError("Text preset export has no preset array");
+      const ids = /* @__PURE__ */ new Set();
+      for (const preset of document2.presets) {
+        const id = String(preset?.id || "").trim();
+        if (!id || ids.has(id) || typeof preset?.name !== "string") throw new TypeError("Text preset export contains invalid or duplicate entries");
+        const payload = adapter.deserialize(preset);
+        if (!adapter.validate(payload)) throw new TypeError("Text preset export contains invalid payload");
+        ids.add(id);
+      }
+      return { kind: "vgen-nya.text-preset-import-plan", context: document2.context, presets: cloneStorageValue(document2.presets), count: document2.presets.length };
+    }
+    commitImport(plan, { confirmed = false } = {}) {
+      if (!confirmed) throw new Error("Text preset import requires explicit confirmation");
+      if (plan?.kind !== "vgen-nya.text-preset-import-plan") throw new TypeError("Invalid text preset import plan");
+      this.registry.get(plan.context);
+      const previous = this.store.read(plan.context);
+      try {
+        this.store.write(plan.context, plan.presets);
+        const written = this.store.read(plan.context);
+        if (JSON.stringify(written) !== JSON.stringify(plan.presets)) throw new Error("Text preset import verification failed");
+      } catch (error) {
+        this.store.write(plan.context, previous);
+        throw new Error("Text preset import failed and previous values were restored", { cause: error });
+      }
+      return this.list(plan.context);
+    }
+    subscribe(listener) {
+      return this.store.subscribe(listener);
+    }
+  };
+
+  // src/presets/adapters/plain-text.js
+  function valueFromPreset(preset) {
+    if (typeof preset?.value === "string") return preset.value;
+    return "";
+  }
+  var PlainTextPresetAdapter = class {
+    constructor({ fill } = {}) {
+      this.fillTarget = fill;
+    }
+    serialize(payload, base = {}) {
+      if (typeof payload !== "string") throw new TypeError("Text preset content must be a string");
+      return { ...base, value: payload };
+    }
+    deserialize(preset) {
+      return valueFromPreset(preset);
+    }
+    preview(payload, maximum = 120) {
+      return String(payload).replace(/\s+/g, " ").trim().slice(0, maximum);
+    }
+    validate(payload) {
+      return typeof payload === "string";
+    }
+    async fill(payload, target, options = {}) {
+      if (!this.validate(payload)) throw new TypeError("Text preset content must be a string");
+      if (this.fillTarget) return this.fillTarget(payload, target, options);
+      if (typeof target?.fillText !== "function") throw new TypeError("Text preset target requires fillText()");
+      return target.fillText(payload, options);
+    }
+  };
+
+  // src/presets/adapters/upload-title.js
+  var UploadTitlePresetAdapter = class extends PlainTextPresetAdapter {
+    constructor() {
+      super({ fill: (payload, target) => target.applyText("title", payload) });
+    }
+    deserialize(preset) {
+      return typeof preset?.value === "string" ? preset.value : String(preset?.title || "");
+    }
+  };
+
+  // src/presets/adapters/upload-description.js
+  function textFromSlate(value) {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(textFromSlate).join("");
+    if (value && typeof value === "object") {
+      if (typeof value.text === "string") return value.text;
+      return Object.values(value).map(textFromSlate).join("");
+    }
+    return "";
+  }
+  var UploadDescriptionPresetAdapter = class {
+    serialize(payload, base = {}) {
+      this.#parse(payload);
+      return { ...base, value: payload };
+    }
+    deserialize(preset) {
+      const payload = typeof preset?.value === "string" ? preset.value : String(preset?.description || "");
+      this.#parse(payload);
+      return payload;
+    }
+    preview(payload, maximum = 120) {
+      return textFromSlate(this.#parse(payload)).replace(/\s+/g, " ").trim().slice(0, maximum);
+    }
+    validate(payload) {
+      try {
+        this.#parse(payload);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    async fill(payload, target) {
+      this.#parse(payload);
+      if (typeof target?.applyText !== "function") throw new TypeError("Description target requires applyText()");
+      return target.applyText("description", payload);
+    }
+    #parse(payload) {
+      if (typeof payload !== "string") throw new TypeError("Description preset must preserve serialized Slate JSON");
+      let value;
+      try {
+        value = JSON.parse(payload);
+      } catch (error) {
+        throw new TypeError("Description preset contains invalid Slate JSON", { cause: error });
+      }
+      if (!Array.isArray(value)) throw new TypeError("Description preset Slate root must be an array");
+      return value;
+    }
+  };
+
+  // src/presets/adapters/chat-quick-reply.js
+  var ChatQuickReplyPresetAdapter = class extends PlainTextPresetAdapter {
+    constructor() {
+      super({ fill: (payload, target, options) => target.fillComposer(payload, options) });
+    }
+  };
+
+  // src/presets/adapters/private-note.js
+  var PrivateNotePresetAdapter = class extends PlainTextPresetAdapter {
+    constructor() {
+      super({ fill: (payload, target, options) => target.fillPrivateNote(payload, options) });
+    }
+  };
+
+  // src/presets/adapters/final-delivery.js
+  var FinalDeliveryPresetAdapter = class extends PlainTextPresetAdapter {
+    constructor() {
+      super({ fill: (payload, target, options) => target.fillFinalDelivery(payload, options) });
+    }
+  };
+
+  // src/order/order-text-presets.js
+  var NOTE_CONTEXT = TEXT_PRESET_CONTEXTS.privateNote;
+  var NOTE_SELECTOR = 'textarea[aria-label="Note to self"], input[aria-label="Note to self"], textarea[placeholder="Note to self"], input[placeholder="Note to self"]';
+  var ORDER_PRESET_CSS = ".vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-order-presets .vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-order-presets .vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-order-presets .vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}";
+  function privateNoteInputs(root) {
+    const inputs = [
+      ...root?.matches?.(NOTE_SELECTOR) ? [root] : [],
+      ...root?.querySelectorAll?.(NOTE_SELECTOR) || []
+    ];
+    for (const label of root?.querySelectorAll?.("label") || []) {
+      if (!/\bnote\s+to\s+self\b/i.test(String(label.textContent || ""))) continue;
+      const id = label.getAttribute?.("for") || label.htmlFor;
+      const input = id && label.ownerDocument?.getElementById?.(id) || label.querySelector?.("textarea, input") || label.parentElement?.querySelector?.("textarea, input");
+      if (input) inputs.push(input);
+    }
+    return [...new Set(inputs)];
+  }
+  var PrivateNoteTarget = class {
+    constructor(element2) {
+      this.native = new NativeTextTarget(element2);
+    }
+    fillPrivateNote(payload, options) {
+      return this.native.fillText(payload, options);
+    }
+  };
+  var PrivateNoteSession = class {
+    constructor({ input, engine } = {}) {
+      this.input = input;
+      this.engine = engine;
+      this.root = null;
+      this.target = new PrivateNoteTarget(input);
+      this.onClick = (event) => this.#click(event);
+      this.onInput = () => {
+        this.engine.clearSelection(NOTE_CONTEXT);
+        this.render();
+      };
+    }
+    mount() {
+      if (this.root?.isConnected) return false;
+      const documentObject = this.input.ownerDocument;
+      this.root = documentObject.createElement("div");
+      this.root.className = "vgen-nya-order-presets notranslate";
+      this.root.dataset.vgenNyaUi = "private-note-presets";
+      this.root.translate = false;
+      this.root.addEventListener("click", this.onClick);
+      this.input.addEventListener("input", this.onInput);
+      (this.input.parentElement || this.input).append(this.root);
+      this.render();
+      return true;
+    }
+    render() {
+      const documentObject = this.input.ownerDocument;
+      this.root.replaceChildren();
+      const items = this.engine.list(NOTE_CONTEXT);
+      if (!items.length) {
+        const empty = documentObject.createElement("span");
+        empty.className = "vgen-nya-preset-empty";
+        empty.textContent = "暂无 Private Note 预设";
+        this.root.append(empty);
+        return;
+      }
+      for (const preset of items) {
+        const button = documentObject.createElement("button");
+        button.type = "button";
+        button.className = "vgen-nya-preset-chip";
+        button.dataset.presetId = preset.id;
+        button.title = this.engine.preview(NOTE_CONTEXT, preset.id, 180);
+        button.textContent = preset.name;
+        button.setAttribute("aria-pressed", String(this.engine.selectedId(NOTE_CONTEXT) === String(preset.id)));
+        this.root.append(button);
+      }
+    }
+    async #click(event) {
+      const button = event.target?.closest?.("button[data-preset-id]");
+      if (!button || !this.root.contains(button)) return;
+      let result = await this.engine.select(NOTE_CONTEXT, button.dataset.presetId, this.target);
+      if (result.status === "requires-confirmation") {
+        if (this.root.ownerDocument.defaultView?.confirm?.("Note 已有内容。确认替换吗？") !== true) return;
+        result = await this.engine.select(NOTE_CONTEXT, button.dataset.presetId, this.target, { replace: true });
+      }
+      if (result.status === "filled") this.render();
+    }
+    unmount() {
+      this.root?.removeEventListener("click", this.onClick);
+      this.input?.removeEventListener("input", this.onInput);
+      this.root?.remove();
+      this.root = null;
+    }
+  };
+  var OrderTextPresetRuntime = class {
+    constructor({ engine, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, noteResolver = privateNoteInputs } = {}) {
+      this.engine = engine;
+      this.documentObject = documentObject;
+      this.MutationObserverClass = MutationObserverClass;
+      this.noteResolver = noteResolver;
+      this.sessions = /* @__PURE__ */ new Map();
+      this.observer = null;
+      this.unsubscribe = null;
+      this.style = null;
+      this.mounted = false;
+    }
+    mount() {
+      if (this.mounted || !this.documentObject?.body) return false;
+      this.mounted = true;
+      this.style = this.documentObject.createElement("style");
+      this.style.dataset.vgenNyaUi = "order-preset-style";
+      this.style.textContent = ORDER_PRESET_CSS;
+      (this.documentObject.head || this.documentObject.body).append(this.style);
+      this.scan(this.documentObject);
+      this.unsubscribe = this.engine.subscribe(({ context }) => {
+        if (context === NOTE_CONTEXT) for (const session of this.sessions.values()) session.render();
+      });
+      if (this.MutationObserverClass) {
+        this.observer = new this.MutationObserverClass((records) => {
+          for (const record of records) {
+            for (const node of record.addedNodes || []) this.scan(node);
+            for (const node of record.removedNodes || []) this.releaseRemoved(node);
+          }
+        });
+        this.observer.observe(this.documentObject.body, { childList: true });
+      }
+      return true;
+    }
+    scan(root) {
+      let mounted = 0;
+      for (const input of this.noteResolver(root)) {
+        if (this.sessions.has(input) || input.isConnected === false) continue;
+        const session = new PrivateNoteSession({ input, engine: this.engine });
+        session.mount();
+        this.sessions.set(input, session);
+        mounted += 1;
+      }
+      return mounted;
+    }
+    releaseRemoved(root) {
+      for (const [input, session] of this.sessions) {
+        if (input === root || root.contains?.(input) || !input.isConnected) {
+          session.unmount();
+          this.sessions.delete(input);
+        }
+      }
+    }
+    activate() {
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.observer?.disconnect();
+      this.observer = null;
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+      for (const session of this.sessions.values()) session.unmount();
+      this.sessions.clear();
+      this.style?.remove();
+      this.style = null;
+      this.mounted = false;
+      return true;
+    }
+    dispose() {
+      this.unmount();
+    }
+  };
+
   // src/index.js
   function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow: pageWindow2 = gm } = {}) {
     const store = new ConfigStore(storageDriver || createGMStorageDriver(gm));
     const modules = new ModuleManager();
     const uploadRepository = new UploadConfigRepository(store);
     const chatRepository = new ChatConfigRepository(store);
+    const textPresetStore = new TextPresetStore({ store, uploadRepository });
+    const textPresetRegistry = new TextPresetContextRegistry();
+    textPresetRegistry.register(TEXT_PRESET_CONTEXTS.uploadTitle, new UploadTitlePresetAdapter());
+    textPresetRegistry.register(TEXT_PRESET_CONTEXTS.uploadDescription, new UploadDescriptionPresetAdapter());
+    textPresetRegistry.register(TEXT_PRESET_CONTEXTS.chatQuickReply, new ChatQuickReplyPresetAdapter());
+    textPresetRegistry.register(TEXT_PRESET_CONTEXTS.privateNote, new PrivateNotePresetAdapter());
+    textPresetRegistry.register(TEXT_PRESET_CONTEXTS.finalDelivery, new FinalDeliveryPresetAdapter());
+    const textPresetEngine = new TextPresetEngine({ store: textPresetStore, registry: textPresetRegistry });
     const readGate = new ReadGate(chatRepository.read().chatSettings);
     let diagnostics;
     const networkHooks = new ChatNetworkHooks({ windowObject: pageWindow2, readGate, onDiagnosticEvent: (event) => diagnostics?.record(event) });
     diagnostics = new ChatDiagnostics({ networkHooks });
-    const navigation = createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION));
+    const navigation = createOrderTextPresetNavigation(textPresetEngine, createChatSettingsNavigation(chatRepository, diagnostics, createUploadSettingsNavigation(uploadRepository, SETTINGS_NAVIGATION, textPresetEngine), textPresetEngine));
     const settingsShell = createSettingsShell({ navigation });
-    const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
+    const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, textPresetEngine, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
     const chat = new ChatService({ documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
-    const chatAssistant = new ChatAssistantRuntime({ repository: chatRepository, readGate, networkHooks, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
+    const chatAssistant = new ChatAssistantRuntime({ repository: chatRepository, readGate, networkHooks, textPresetEngine, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
     const frequentClients = new FrequentClientsRuntime({ repository: chatRepository, chat, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver, fetchImpl: pageWindow2.fetch?.bind(pageWindow2) });
+    const orderTextPresets = new OrderTextPresetRuntime({ engine: textPresetEngine, documentObject: pageWindow2.document, MutationObserverClass: pageWindow2.MutationObserver });
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
     modules.register("settings", settingsShell);
     modules.register("upload-assistant", uploadAssistant);
     modules.register("chat-assistant", chatAssistant);
     modules.register("frequent-clients", frequentClients);
+    modules.register("order-text-presets", orderTextPresets);
     return {
       store,
       modules,
@@ -3583,8 +4387,11 @@ ${summary}
       uploadAssistant,
       uploadRepository,
       chatRepository,
+      textPresetEngine,
+      textPresetStore,
       chatAssistant,
       frequentClients,
+      orderTextPresets,
       chat,
       diagnostics,
       networkHooks,
@@ -3621,8 +4428,16 @@ ${summary}
       unmountFrequentClients() {
         modules.unmount("frequent-clients");
       },
+      mountOrderTextPresets() {
+        modules.mount("order-text-presets");
+        modules.activate("order-text-presets");
+      },
+      unmountOrderTextPresets() {
+        modules.unmount("order-text-presets");
+      },
       dispose() {
         modules.disposeAll();
+        textPresetStore.dispose();
         diagnostics.dispose();
         networkHooks.dispose();
       }
@@ -3698,6 +4513,7 @@ ${summary}
     core.mountUploadAssistant();
     core.mountChatAssistant();
     core.mountFrequentClients();
+    core.mountOrderTextPresets();
   }
   start();
 })();
