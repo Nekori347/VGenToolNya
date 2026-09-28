@@ -56,6 +56,14 @@ Upload Assistant / Order Assistant / Chat Assistant / Review Assistant / Frequen
 - `●/✓`、Bubble 内状态长条、seen 与 timestamp 是相互独立的展示层；状态长条参与 Bubble 正常布局流，以适应翻译扩展造成的动态高度。
 - 各功能 Iteration Merge Gate 只要求 `UI_INTEGRATION_SAFE`：不遮挡、不破坏交互/结构、无严重重叠且基本可读。跨模块最终视觉由 Stable Release 前的 `UI-FINAL-POLISH-01` 收口并交由用户人工验收，Architecture 不固化具体像素值。
 
+## Chat Full-text Search 边界
+
+- 复用 Iteration 3 的 Chat lifecycle / active channel detection（`StreamChatAdapter.findChannel()`），不建立第二套 Chat detector。
+- `ChatHistoryAdapter` 只做只读历史读取：优先 `channel.query({messages:{limit,id_lt}})` 分页与 `channel.search`/`client.search` 服务端搜索（若暴露），fallback 为 `channel.state.messages`（已加载）+ 当前 session 内 scoped DOM 搜索；绝不调用 send/markRead/reaction/update。
+- `ChatSearchEngine` 是唯一触发历史读取的入口（用户显式搜索才 fetch，打开会话不预取）；operation token 保证 stale 结果不回写；`ChatSearchCache` 为有界（max channels / max messages）per-channel LRU，不维护跨会话数据库。
+- `ChatSearchLocator` 只在当前 session message list 内定位（`data-message-id`），优先原生 `scrollIntoView` + 短暂高亮，缺失时经 `channel.state.loadMore` 有界加载；不伪造消息 DOM、不改 Bubble 数据。
+- 搜索 UI 挂载于 Chat session，不遮挡 composer / Jump to present；无 polling / sustained RAF / body subtree observer / documentElement observer；无搜索时近乎零额外网络开销。
+
 ## Order Detail / Client Background 边界
 
 - Client Background / Client Review Context 随任何可打开的 Order / Commission Detail Panel mount/unmount，不按 pending 或其他订单状态分叉挂载。

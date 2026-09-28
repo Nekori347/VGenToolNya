@@ -9,6 +9,7 @@ export const CHAT_DEFAULTS = Object.freeze({
     showTimestamps: true,
     showStatusBar: true,
     compactReactions: true,
+    searchEnabled: true,
 });
 
 export const CLIENTS_DEFAULTS = Object.freeze({
@@ -32,6 +33,7 @@ export function normalizeChatSettings(value = {}) {
         showTimestamps: raw.showTimestamps !== false,
         showStatusBar: raw.showStatusBar !== false,
         compactReactions: raw.compactReactions !== false,
+        searchEnabled: raw.searchEnabled !== false,
     };
 }
 

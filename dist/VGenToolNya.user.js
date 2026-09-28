@@ -2193,7 +2193,8 @@ ${summary}
     showSeen: true,
     showTimestamps: true,
     showStatusBar: true,
-    compactReactions: true
+    compactReactions: true,
+    searchEnabled: true
   });
   var CLIENTS_DEFAULTS = Object.freeze({
     enabled: true,
@@ -2213,7 +2214,8 @@ ${summary}
       showSeen: raw.showSeen !== false,
       showTimestamps: raw.showTimestamps !== false,
       showStatusBar: raw.showStatusBar !== false,
-      compactReactions: raw.compactReactions !== false
+      compactReactions: raw.compactReactions !== false,
+      searchEnabled: raw.searchEnabled !== false
     };
   }
   function normalizeClientsSettings(value = {}) {
@@ -3122,6 +3124,545 @@ ${summary}
     }
   };
 
+  // src/chat/chat-history-adapter.js
+  function normalizeChatMessage(message, cid) {
+    if (!message || typeof message !== "object") return null;
+    const id = message.id || message.messageId || message.message_id;
+    if (!id) return null;
+    const createdAt = message.created_at || message.createdAt || message.created || null;
+    return {
+      messageId: String(id),
+      cid: cid || null,
+      authorId: message.user?.id || message.user_id || message.senderId || null,
+      authorName: message.user?.name || message.user?.username || null,
+      text: typeof message.text === "string" ? message.text : typeof message.body === "string" ? message.body : "",
+      createdAt: createdAt == null ? null : createdAt instanceof Date ? createdAt.toISOString() : String(createdAt)
+    };
+  }
+  function channelCid2(channel) {
+    return channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null);
+  }
+  var ChatHistoryAdapter = class {
+    constructor({ channel, client, fetchImpl = globalThis.fetch } = {}) {
+      this.channel = channel || null;
+      this.client = client || channel?.getClient?.() || channel?.client || channel?._client || null;
+      this.fetchImpl = fetchImpl;
+    }
+    cid() {
+      return channelCid2(this.channel);
+    }
+    // Already-loaded messages from the SDK channel state. Always read-only.
+    loadedMessages() {
+      const list = this.channel?.state?.messages || this.channel?.state?.messagePagination?.messages || [];
+      return list.map((message) => normalizeChatMessage(message, this.cid())).filter(Boolean);
+    }
+    supportsServerSearch() {
+      return typeof this.channel?.search === "function" || typeof this.client?.search === "function";
+    }
+    // Server-side search when the SDK exposes it. Returns normalized messages or
+    // null when the path is unavailable so the caller can fall back to pagination.
+    async searchServer(query, { signal } = {}) {
+      const cid = this.cid();
+      try {
+        if (typeof this.channel?.search === "function") {
+          const response = await this.channel.search({ query, text: query }, { limit: 50 }, { signal });
+          return this.#messagesFromSearchResponse(response, cid);
+        }
+        if (typeof this.client?.search === "function") {
+          const response = await this.client.search({ query }, { cid }, { limit: 50 }, { signal });
+          return this.#messagesFromSearchResponse(response, cid);
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    }
+    #messagesFromSearchResponse(response, cid) {
+      const results = response?.results || [];
+      const messages = results.map((item) => item?.message || item).filter(Boolean);
+      const normalized = messages.map((message) => normalizeChatMessage(message, cid)).filter(Boolean);
+      return normalized.length ? normalized : null;
+    }
+    // Fetches one page of history. The SDK returns pages in ascending (oldest
+    // first) order; `before` is the id of the oldest message seen so far and is
+    // passed as id_lt. Returns { available, messages, hasMore }.
+    async fetchHistoryPage({ before = null, limit = 100, signal } = {}) {
+      const channel = this.channel;
+      if (!channel) return { available: false, messages: [], hasMore: false };
+      if (typeof channel.query !== "function") return { available: false, messages: [], hasMore: false };
+      try {
+        const messageQuery = before ? { limit, id_lt: before } : { limit };
+        const response = await channel.query({ messages: messageQuery }, { signal });
+        const list = Array.isArray(response?.messages) ? response.messages : Array.isArray(response) ? response : null;
+        if (!Array.isArray(list)) return { available: false, messages: [], hasMore: false };
+        const messages = list.map((message) => normalizeChatMessage(message, this.cid())).filter(Boolean);
+        const hasMore = messages.length >= limit;
+        return { available: true, messages, hasMore };
+      } catch {
+        return { available: false, messages: [], hasMore: false };
+      }
+    }
+    // Loads the region around a single message id into the channel state so a
+    // not-yet-rendered result can be resolved. Returns whether the target id is
+    // now present in the SDK state (it may still not be mounted in the DOM, which
+    // is the caller's responsibility to report honestly).
+    async loadAround(messageId, { limit = 50, signal } = {}) {
+      const channel = this.channel;
+      const target = String(messageId || "");
+      if (!channel || !target || typeof channel.query !== "function") return { loaded: false };
+      try {
+        await channel.query({ messages: { limit, id_around: target } }, { signal });
+        const present = (channel.state?.messages || []).some((message) => String(message?.id) === target);
+        return { loaded: present };
+      } catch {
+        return { loaded: false };
+      }
+    }
+  };
+
+  // src/chat/chat-search-engine.js
+  var SEARCH_STATES = Object.freeze({
+    idle: "idle",
+    searching: "searching",
+    results: "results",
+    empty: "empty",
+    error: "error"
+  });
+  var SEARCH_SOURCES = Object.freeze({
+    server: "server",
+    history: "history",
+    loaded: "loaded"
+  });
+  function normalizeSearchText(value) {
+    return String(value ?? "").replace(/\s+/g, " ").trim();
+  }
+  function matchesQuery(text, query) {
+    const needle = normalizeSearchText(query).toLowerCase();
+    if (!needle) return false;
+    return normalizeSearchText(text).toLowerCase().includes(needle);
+  }
+  function makeSnippet(text, maximum = 160) {
+    const plain = normalizeSearchText(text);
+    return plain.length > maximum ? `${plain.slice(0, maximum)}…` : plain;
+  }
+  function sortNewestFirst(messages) {
+    return [...messages].sort((left, right) => {
+      const a = Number(Date.parse(left?.createdAt || "")) || 0;
+      const b = Number(Date.parse(right?.createdAt || "")) || 0;
+      return b - a;
+    });
+  }
+  var DEFAULT_MAX_CHANNELS = 5;
+  var DEFAULT_MAX_MESSAGES_PER_CHANNEL = 500;
+  var ChatSearchCache = class {
+    constructor({ maxChannels = DEFAULT_MAX_CHANNELS, maxMessages = DEFAULT_MAX_MESSAGES_PER_CHANNEL } = {}) {
+      this.maxChannels = maxChannels;
+      this.maxMessages = maxMessages;
+      this.channels = /* @__PURE__ */ new Map();
+    }
+    get(cid) {
+      const entry = this.channels.get(cid);
+      if (!entry) return null;
+      this.channels.delete(cid);
+      this.channels.set(cid, entry);
+      return entry;
+    }
+    // Merges a fetched page into the channel entry and returns the entry. The SDK
+    // returns each page in ascending (oldest-first) order, so the first message of
+    // a page is its oldest and becomes the next id_lt cursor.
+    record(cid, messages, { complete = false } = {}) {
+      const entry = this.get(cid) || { messages: [], ids: /* @__PURE__ */ new Set(), complete: false, oldestId: null };
+      let firstNewId = null;
+      for (const message of messages) {
+        if (!message?.messageId || entry.ids.has(message.messageId)) continue;
+        entry.ids.add(message.messageId);
+        entry.messages.push(message);
+        if (firstNewId === null) firstNewId = message.messageId;
+      }
+      if (firstNewId !== null) entry.oldestId = firstNewId;
+      entry.complete = Boolean(entry.complete || complete);
+      if (entry.messages.length > this.maxMessages) {
+        const overflow = entry.messages.length - this.maxMessages;
+        const dropped = entry.messages.splice(0, overflow);
+        for (const message of dropped) entry.ids.delete(message.messageId);
+        entry.complete = false;
+      }
+      this.channels.delete(cid);
+      this.channels.set(cid, entry);
+      while (this.channels.size > this.maxChannels) {
+        const oldestCid = this.channels.keys().next().value;
+        this.channels.delete(oldestCid);
+      }
+      return entry;
+    }
+    oldestId(entry) {
+      return entry?.oldestId || null;
+    }
+    clear() {
+      this.channels.clear();
+    }
+    get size() {
+      return this.channels.size;
+    }
+  };
+  var ChatSearchEngine = class {
+    constructor({ cache = new ChatSearchCache(), maxPagesPerSearch = 5, pageSize = 100 } = {}) {
+      this.cache = cache;
+      this.maxPagesPerSearch = maxPagesPerSearch;
+      this.pageSize = pageSize;
+      this.operation = 0;
+      this.listeners = /* @__PURE__ */ new Set();
+      this.state = SEARCH_STATES.idle;
+      this.results = [];
+      this.source = null;
+      this.partial = false;
+      this.error = null;
+    }
+    subscribe(listener) {
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    get snapshot() {
+      return { state: this.state, results: this.results, source: this.source, partial: this.partial, error: this.error };
+    }
+    cancel(reason = "superseded") {
+      this.operation += 1;
+    }
+    async search({ query, history, cid }) {
+      const operation = ++this.operation;
+      const normalized = normalizeSearchText(query);
+      if (!normalized) {
+        this.#set({ state: SEARCH_STATES.idle, results: [], source: null, partial: false, error: null });
+        return this.snapshot;
+      }
+      this.#set({ state: SEARCH_STATES.searching, results: [], source: null, partial: false, error: null });
+      try {
+        if (history?.supportsServerSearch?.()) {
+          const server = await history.searchServer(normalized);
+          if (operation !== this.operation) return this.snapshot;
+          if (server && server.length) {
+            this.#set({ state: SEARCH_STATES.results, results: sortNewestFirst(server), source: SEARCH_SOURCES.server, partial: false, error: null });
+            return this.snapshot;
+          }
+        }
+        const result = await this.#searchHistory(normalized, history, cid, operation);
+        if (operation !== this.operation) return this.snapshot;
+        this.#set(result);
+        return this.snapshot;
+      } catch (error) {
+        if (operation !== this.operation) return this.snapshot;
+        this.#set({ state: SEARCH_STATES.error, results: [], source: null, partial: false, error: String(error?.message || error) });
+        return this.snapshot;
+      }
+    }
+    async #searchHistory(normalized, history, cid, operation) {
+      let entry = this.cache.get(cid) || this.cache.record(cid, [], { complete: false });
+      let pagesFetched = 0;
+      let available = true;
+      while (!entry.complete && pagesFetched < this.maxPagesPerSearch && available) {
+        const before = this.cache.oldestId(entry);
+        const page = await history.fetchHistoryPage({ before, limit: this.pageSize });
+        if (operation !== this.operation) return this.snapshot;
+        if (!page?.available) {
+          available = false;
+          break;
+        }
+        const messages2 = page.messages || [];
+        if (!messages2.length) {
+          entry = this.cache.record(cid, [], { complete: true });
+          break;
+        }
+        const complete = messages2.length < this.pageSize;
+        entry = this.cache.record(cid, messages2, { complete });
+        pagesFetched += 1;
+      }
+      const { messages } = entry;
+      const matches = sortNewestFirst(messages.filter((message) => matchesQuery(message.text, normalized)));
+      const partial = !entry.complete && available === true;
+      const source = available ? SEARCH_SOURCES.history : SEARCH_SOURCES.loaded;
+      if (!available) {
+        const loaded = history.loadedMessages?.() || [];
+        const loadedMatches = sortNewestFirst(loaded.filter((message) => matchesQuery(message.text, normalized)));
+        return {
+          state: loadedMatches.length ? SEARCH_STATES.results : SEARCH_STATES.empty,
+          results: loadedMatches,
+          source: SEARCH_SOURCES.loaded,
+          partial: true,
+          error: null
+        };
+      }
+      return {
+        state: matches.length ? SEARCH_STATES.results : SEARCH_STATES.empty,
+        results: matches,
+        source,
+        partial,
+        error: null
+      };
+    }
+    #set({ state, results, source, partial, error }) {
+      this.state = state;
+      this.results = results;
+      this.source = source;
+      this.partial = partial;
+      this.error = error;
+      for (const listener of this.listeners) listener(this.snapshot);
+    }
+  };
+
+  // src/chat/chat-search-locator.js
+  var MESSAGE_ID_SELECTOR = "[data-message-id]";
+  var HIGHLIGHT_CLASS = "vgen-nya-search-highlight";
+  var HIGHLIGHT_MS = 2e3;
+  var ChatSearchLocator = class {
+    constructor({ surface, documentObject = surface?.ownerDocument || globalThis.document } = {}) {
+      this.surface = surface;
+      this.documentObject = documentObject;
+      this.highlightTimers = /* @__PURE__ */ new Set();
+    }
+    findElement(messageId) {
+      if (!this.surface?.querySelectorAll || !messageId) return null;
+      const wanted = String(messageId);
+      const candidates = this.surface.querySelectorAll(MESSAGE_ID_SELECTOR) || [];
+      for (const element2 of candidates) {
+        if (element2.dataset?.messageId === wanted || element2.getAttribute?.("data-message-id") === wanted || element2.id === wanted) return element2;
+      }
+      return null;
+    }
+    scrollTo(element2) {
+      element2?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }
+    highlight(element2) {
+      if (!element2) return;
+      element2.classList?.add?.(HIGHLIGHT_CLASS);
+      const timer = this.documentObject?.defaultView?.setTimeout?.(() => element2.classList?.remove?.(HIGHLIGHT_CLASS), HIGHLIGHT_MS) || globalThis.setTimeout(() => element2.classList?.remove?.(HIGHLIGHT_CLASS), HIGHLIGHT_MS);
+      this.highlightTimers.add(timer);
+    }
+    // Locate a message that may not be in the DOM yet. When it is not rendered,
+    // `load` (e.g. channel.query with id_around) loads its region into SDK state
+    // and we re-check the DOM. The reverse-infinite-scroll list may still not
+    // mount it, so the caller reports that honestly instead of faking a message.
+    async locateOrLoad(messageId, { load, signal } = {}) {
+      const element2 = this.findElement(messageId);
+      if (element2) {
+        this.scrollTo(element2);
+        this.highlight(element2);
+        return { found: true, loads: 0 };
+      }
+      if (typeof load !== "function") return { found: false, loads: 0 };
+      if (signal?.aborted) return { found: false, loads: 0, aborted: true };
+      try {
+        await load(messageId);
+      } catch {
+        return { found: false, loads: 0 };
+      }
+      const loaded = this.findElement(messageId);
+      if (loaded) {
+        this.scrollTo(loaded);
+        this.highlight(loaded);
+        return { found: true, loads: 1 };
+      }
+      return { found: false, loads: 1 };
+    }
+    clearHighlights() {
+      for (const timer of this.highlightTimers) {
+        try {
+          globalThis.clearTimeout(timer);
+        } catch {
+        }
+      }
+      this.highlightTimers.clear();
+      for (const node of this.surface?.querySelectorAll?.(`.${HIGHLIGHT_CLASS}`) || []) node.classList?.remove?.(HIGHLIGHT_CLASS);
+    }
+  };
+
+  // src/chat/chat-search-ui.js
+  var CHAT_SEARCH_CSS = `
+.vgen-nya-chat-search{margin:0;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent);display:flex;flex-direction:column;gap:6px;font:12px/1.4 system-ui,sans-serif;color:inherit;max-width:100%}
+.vgen-nya-chat-search__bar{display:flex;align-items:center;gap:6px}
+.vgen-nya-chat-search input{flex:1;min-width:0;padding:5px 8px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;background:Canvas;color:CanvasText;font:inherit}
+.vgen-nya-chat-search button{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 9px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}
+.vgen-nya-chat-search button:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
+.vgen-nya-chat-search button:disabled{opacity:.5;cursor:default}
+.vgen-nya-chat-search__status{margin:0;opacity:.75}
+.vgen-nya-chat-search__status[data-error="true"]{color:#b42318}
+.vgen-nya-chat-search__results{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:220px;overflow:auto}
+.vgen-nya-chat-search__result{display:block;width:100%;text-align:left;padding:6px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:7px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;cursor:pointer}
+.vgen-nya-chat-search__result-snippet{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
+.vgen-nya-chat-search__result-meta{display:block;margin-top:3px;font-size:11px;opacity:.72}
+`;
+  function make5(documentObject, tagName, className = "", text = "") {
+    const node = documentObject.createElement(tagName);
+    node.className = className;
+    node.textContent = text;
+    return node;
+  }
+  function mountAtTop(surface, node) {
+    if (typeof surface?.prepend === "function") surface.prepend(node);
+    else if (typeof surface?.insertBefore === "function" && surface.firstChild) surface.insertBefore(node, surface.firstChild);
+    else surface?.append?.(node);
+  }
+  var ChatSearchController = class {
+    constructor({ surface, adapter, documentObject = surface?.ownerDocument || globalThis.document, historyAdapterFactory, locatorFactory, debounceMs = 300 } = {}) {
+      this.surface = surface;
+      this.adapter = adapter;
+      this.documentObject = documentObject;
+      this.historyAdapterFactory = historyAdapterFactory || ((channel) => new ChatHistoryAdapter({ channel }));
+      this.locatorFactory = locatorFactory || (() => new ChatSearchLocator({ surface, documentObject }));
+      this.debounceMs = debounceMs;
+      this.engine = new ChatSearchEngine({ cache: new ChatSearchCache() });
+      this.locator = this.locatorFactory();
+      this.cid = null;
+      this.root = null;
+      this.input = null;
+      this.statusNode = null;
+      this.listNode = null;
+      this.debounceTimer = null;
+      this.mounted = false;
+      this.unsubscribe = this.engine.subscribe(() => this.#renderResults());
+      this.onInput = () => this.#scheduleSearch();
+      this.onKeydown = (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault?.();
+          this.#runNow();
+        }
+      };
+    }
+    mount() {
+      if (this.mounted || !this.documentObject?.createElement) return false;
+      this.mounted = true;
+      this.root = make5(this.documentObject, "div", "vgen-nya-chat-search notranslate");
+      this.root.dataset.vgenNyaUi = "chat-search";
+      this.root.translate = false;
+      this.#build();
+      mountAtTop(this.surface, this.root);
+      this.refresh();
+      return true;
+    }
+    #build() {
+      const documentObject = this.documentObject;
+      const bar = make5(documentObject, "div", "vgen-nya-chat-search__bar");
+      this.input = make5(documentObject, "input", "");
+      this.input.type = "text";
+      this.input.placeholder = "搜索当前会话…";
+      this.input.setAttribute("aria-label", "搜索聊天历史");
+      this.input.addEventListener("input", this.onInput);
+      this.input.addEventListener("keydown", this.onKeydown);
+      const run = make5(documentObject, "button", "notranslate", "搜索");
+      run.type = "button";
+      run.translate = false;
+      run.dataset.action = "search";
+      run.addEventListener("click", () => void this.#runNow());
+      bar.append(this.input, run);
+      this.statusNode = make5(documentObject, "p", "vgen-nya-chat-search__status notranslate");
+      this.statusNode.translate = false;
+      this.listNode = make5(documentObject, "ul", "vgen-nya-chat-search__results");
+      this.root.append(bar, this.statusNode, this.listNode);
+    }
+    ownsMutation(record) {
+      return Boolean(this.root && (record?.target === this.root || this.root.contains?.(record?.target)));
+    }
+    refresh() {
+      const channel = this.adapter?.findChannel?.();
+      const cid = channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null) || null;
+      if (cid !== this.cid) {
+        this.cid = cid;
+        this.engine.cancel("channel-change");
+        if (this.input) this.input.value = "";
+        this.#renderResults();
+      }
+    }
+    #channel() {
+      return this.adapter?.findChannel?.() || null;
+    }
+    #historyAdapter() {
+      return this.historyAdapterFactory(this.#channel());
+    }
+    #scheduleSearch() {
+      if (this.debounceTimer !== null) globalThis.clearTimeout(this.debounceTimer);
+      this.debounceTimer = globalThis.setTimeout(() => {
+        this.debounceTimer = null;
+        void this.#run();
+      }, this.debounceMs);
+    }
+    #runNow() {
+      if (this.debounceTimer !== null) {
+        globalThis.clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+      void this.#run();
+    }
+    async #run() {
+      if (!this.input) return;
+      const query = this.input.value || "";
+      const channel = this.#channel();
+      const cid = channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null);
+      if (!cid || !channel) {
+        this.#setStatus("无法读取当前会话", true);
+        return;
+      }
+      await this.engine.search({ query, history: this.#historyAdapter(), cid });
+    }
+    async #locate(messageId) {
+      if (!messageId) return;
+      const history = this.#historyAdapter();
+      await this.locator.locateOrLoad(messageId, { load: (id) => history.loadAround(id) });
+    }
+    #renderResults() {
+      const snapshot = this.engine.snapshot;
+      if (!this.root) return;
+      const documentObject = this.documentObject;
+      this.listNode.replaceChildren();
+      const resultNodes = [];
+      for (const message of snapshot.results) {
+        const button = make5(documentObject, "button", "vgen-nya-chat-search__result");
+        button.type = "button";
+        button.dataset.action = "locate";
+        button.dataset.messageId = message.messageId;
+        const snippet = make5(documentObject, "span", "vgen-nya-chat-search__result-snippet", makeSnippet(message.text));
+        snippet.translate = true;
+        const meta = make5(documentObject, "span", "vgen-nya-chat-search__result-meta notranslate", this.#meta(message));
+        meta.translate = false;
+        button.append(snippet, meta);
+        button.addEventListener("click", () => void this.#locate(message.messageId));
+        resultNodes.push(button);
+      }
+      this.listNode.append(...resultNodes);
+      if (snapshot.state === SEARCH_STATES.searching) this.#setStatus("搜索中…", false);
+      else if (snapshot.state === SEARCH_STATES.error) this.#setStatus(`搜索失败：${snapshot.error || "未知错误"}`, true);
+      else if (snapshot.state === SEARCH_STATES.results) this.#setStatus(`${snapshot.results.length} 条结果${snapshot.partial ? " · 仅搜索已获取的部分历史" : ""}${snapshot.source === "loaded" ? " · 仅当前已加载消息" : ""}`, false);
+      else if (snapshot.state === SEARCH_STATES.empty) this.#setStatus(snapshot.source === "loaded" ? "无结果（仅当前已加载消息）" : "无结果", false);
+      else this.#setStatus("", false);
+    }
+    #meta(message) {
+      const author = message.authorName || message.authorId || "";
+      const time = message.createdAt ? new Date(message.createdAt).toLocaleString?.() || message.createdAt : "";
+      return [author, time].filter(Boolean).join(" · ");
+    }
+    #setStatus(text, error) {
+      if (!this.statusNode) return;
+      this.statusNode.textContent = text;
+      this.statusNode.dataset.error = error ? "true" : "false";
+    }
+    unmount() {
+      if (!this.mounted) return false;
+      this.mounted = false;
+      if (this.debounceTimer !== null) globalThis.clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+      this.engine.cancel("session-closed");
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+      this.locator.clearHighlights();
+      this.input?.removeEventListener("input", this.onInput);
+      this.input?.removeEventListener("keydown", this.onKeydown);
+      this.root?.remove();
+      this.root = null;
+      this.input = null;
+      this.statusNode = null;
+      this.listNode = null;
+      return true;
+    }
+  };
+
   // src/chat/chat-assistant.js
   var CHAT_PORTAL_SELECTOR2 = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
   var CHAT_CSS = `
@@ -3136,6 +3677,8 @@ ${summary}
 [data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
 [data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
 .vgen-nya-quick-replies,.vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-preset-chip[aria-pressed="true"]{border-color:#3b82f6;background:#dbeafe;color:#174b8a}.vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}
+${CHAT_SEARCH_CSS}
+.vgen-nya-search-highlight{outline:2px solid #f59e0b!important;outline-offset:1px;border-radius:8px}
 `;
   var ChatAssistantSession = class {
     constructor({ surface, repository, readGate, adapter, textPresetEngine, MutationObserverClass = globalThis.MutationObserver } = {}) {
@@ -3148,6 +3691,7 @@ ${summary}
       this.cid = null;
       this.mounted = false;
       this.quickReplies = textPresetEngine ? new QuickReplyController({ engine: textPresetEngine, adapter }) : null;
+      this.search = new ChatSearchController({ surface, adapter, documentObject: surface?.ownerDocument || globalThis.document });
     }
     mount() {
       if (this.mounted) return false;
@@ -3156,7 +3700,7 @@ ${summary}
       if (this.MutationObserverClass) {
         this.observer = new this.MutationObserverClass((records) => {
           const onlyOwnInsertions = records.length > 0 && records.every((record) => (record.addedNodes?.length || 0) > 0 && [...record.addedNodes].every((node) => node.dataset?.vgenNyaUi));
-          if (onlyOwnInsertions || records.every((record) => this.quickReplies?.ownsMutation(record))) return;
+          if (onlyOwnInsertions || records.every((record) => this.quickReplies?.ownsMutation(record) || this.search?.ownsMutation(record))) return;
           this.refresh();
         });
         this.observer.observe(this.surface, { childList: true, subtree: true });
@@ -3173,7 +3717,16 @@ ${summary}
       });
       this.cid = result?.cid || null;
       this.quickReplies?.refresh();
+      this.#syncSearch(settings);
       return result;
+    }
+    #syncSearch(settings) {
+      if (settings.searchEnabled !== false) {
+        this.search.mount();
+        this.search.refresh();
+      } else {
+        this.search.unmount();
+      }
     }
     unmount() {
       if (!this.mounted) return false;
@@ -3181,6 +3734,7 @@ ${summary}
       this.observer = null;
       this.adapter.cleanup?.();
       this.quickReplies?.cleanup();
+      this.search.unmount();
       this.cid = null;
       this.mounted = false;
       return true;
@@ -3344,7 +3898,7 @@ ${summary}
     const value = fields.map((field) => item?.[field]).find(Boolean);
     return value && (!latest || Date.parse(value) > Date.parse(latest)) ? value : latest;
   }, "");
-  var make5 = (documentObject, tag, className = "", text = "") => {
+  var make6 = (documentObject, tag, className = "", text = "") => {
     const node = documentObject.createElement(tag);
     node.className = className;
     node.textContent = text;
@@ -3430,7 +3984,7 @@ ${summary}
       const host = mount.parent || mount;
       const before = mount.before || null;
       this.host = host;
-      this.panel = make5(this.documentObject, "section", "vgen-nya-clients notranslate");
+      this.panel = make6(this.documentObject, "section", "vgen-nya-clients notranslate");
       this.panel.dataset.vgenNyaUi = "frequent-clients";
       this.panel.translate = false;
       this.panel.setAttribute("aria-label", "常用访问");
@@ -3485,28 +4039,28 @@ ${summary}
       this.panel.dataset.collapsed = String(clientsSettings.collapsed);
       this.panel.style.cssText = `--vgen-nya-clients-min-height:${clientsSettings.minHeight}px;--vgen-nya-clients-row-height:${clientsSettings.rowHeight}px`;
       this.panel.replaceChildren();
-      const header = make5(this.documentObject, "header", "vgen-nya-clients__header");
+      const header = make6(this.documentObject, "header", "vgen-nya-clients__header");
       header.append(
-        make5(this.documentObject, "strong", "", "常用访问"),
+        make6(this.documentObject, "strong", "", "常用访问"),
         this.#button("refresh", "↻", "刷新资料"),
         this.#button("collapse", clientsSettings.collapsed ? "＋" : "－", clientsSettings.collapsed ? "展开" : "折叠")
       );
       this.panel.append(header);
-      const list = make5(this.documentObject, "div", "vgen-nya-clients__list");
+      const list = make6(this.documentObject, "div", "vgen-nya-clients__list");
       list.hidden = clientsSettings.collapsed;
-      if (!clients.length) list.append(make5(this.documentObject, "p", "vgen-nya-clients__empty", "在设置 → 常用访问中添加客户"));
+      if (!clients.length) list.append(make6(this.documentObject, "p", "vgen-nya-clients__empty", "在设置 → 常用访问中添加客户"));
       clients.forEach((client, index) => list.append(this.#row(client, index)));
       this.panel.append(list);
     }
     #button(action, text, title) {
-      const button = make5(this.documentObject, "button", "", text);
+      const button = make6(this.documentObject, "button", "", text);
       button.type = "button";
       button.dataset.action = action;
       button.title = title;
       return button;
     }
     #row(client, index) {
-      const row = make5(this.documentObject, "div", "vgen-nya-clients__row");
+      const row = make6(this.documentObject, "div", "vgen-nya-clients__row");
       row.dataset.clientId = client.id;
       row.dataset.index = String(index);
       row.draggable = true;
@@ -3514,10 +4068,10 @@ ${summary}
       const quick = this.#button("quick-chat", "", `私信 @${client.username}`);
       quick.className = "vgen-nya-clients__avatar";
       quick.dataset.clientId = client.id;
-      const avatar = make5(this.documentObject, "img");
+      const avatar = make6(this.documentObject, "img");
       avatar.alt = "";
       avatar.src = client.avatarURL || "";
-      const badge = make5(this.documentObject, "span", "vgen-nya-clients__chat-badge", "💬");
+      const badge = make6(this.documentObject, "span", "vgen-nya-clients__chat-badge", "💬");
       badge.setAttribute("aria-hidden", "true");
       quick.append(avatar, badge);
       quick.addEventListener("click", (event) => {
@@ -3525,17 +4079,17 @@ ${summary}
         event.stopPropagation();
         void this.#openQuickChat(client.id, quick);
       });
-      const text = make5(this.documentObject, "a", "vgen-nya-clients__link");
+      const text = make6(this.documentObject, "a", "vgen-nya-clients__link");
       text.href = client.url;
       text.target = "_blank";
       text.rel = "noopener noreferrer";
-      const primary = make5(this.documentObject, "span", "vgen-nya-clients__primary", client.note || client.displayName || `@${client.username}`);
-      const secondary = make5(this.documentObject, "span", "vgen-nya-clients__secondary", `@${client.username}`);
+      const primary = make6(this.documentObject, "span", "vgen-nya-clients__primary", client.note || client.displayName || `@${client.username}`);
+      const secondary = make6(this.documentObject, "span", "vgen-nya-clients__secondary", `@${client.username}`);
       const updates = [client.lastServiceUpdate && `服务 ${this.#date(client.lastServiceUpdate)}`, client.lastPortfolioUpdate && `作品 ${this.#date(client.lastPortfolioUpdate)}`].filter(Boolean).join(" · ");
-      const detail = make5(this.documentObject, "span", "vgen-nya-clients__updates", updates);
+      const detail = make6(this.documentObject, "span", "vgen-nya-clients__updates", updates);
       text.append(primary, secondary, detail);
       if (client.announcementMessage) {
-        const notice = make5(this.documentObject, "span", "vgen-nya-clients__notice", `通知：${client.announcementMessage}`);
+        const notice = make6(this.documentObject, "span", "vgen-nya-clients__notice", `通知：${client.announcementMessage}`);
         notice.title = client.announcementMessage;
         row.append(quick, text, notice);
       } else row.append(quick, text);
@@ -3685,7 +4239,7 @@ ${summary}
   };
 
   // src/settings/chat-settings.js
-  function make6(documentObject, tag, attributes = {}, text = "") {
+  function make7(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
       if (key === "dataset") Object.assign(node.dataset, value);
@@ -3696,8 +4250,8 @@ ${summary}
     return node;
   }
   function check(documentObject, label, checked, setting) {
-    const row = make6(documentObject, "label", { className: "vgen-nya-settings__check" });
-    row.append(make6(documentObject, "input", { type: "checkbox", checked, dataset: { setting } }), documentObject.createTextNode(` ${label}`));
+    const row = make7(documentObject, "label", { className: "vgen-nya-settings__check" });
+    row.append(make7(documentObject, "input", { type: "checkbox", checked, dataset: { setting } }), documentObject.createTextNode(` ${label}`));
     return row;
   }
   function renderChat(repository, fields) {
@@ -3725,10 +4279,10 @@ ${summary}
         body.replaceChildren(
           check(documentObject, "启用常用访问面板", settings.enabled, "enabled"),
           check(documentObject, "默认折叠", settings.collapsed, "collapsed"),
-          make6(documentObject, "label", {}, "面板最小高度 "),
-          make6(documentObject, "input", { type: "number", min: 120, max: 520, value: settings.minHeight, dataset: { setting: "minHeight" } }),
-          make6(documentObject, "label", {}, " 行高 "),
-          make6(documentObject, "input", { type: "number", min: 42, max: 88, value: settings.rowHeight, dataset: { setting: "rowHeight" } })
+          make7(documentObject, "label", {}, "面板最小高度 "),
+          make7(documentObject, "input", { type: "number", min: 120, max: 520, value: settings.minHeight, dataset: { setting: "minHeight" } }),
+          make7(documentObject, "label", {}, " 行高 "),
+          make7(documentObject, "input", { type: "number", min: 42, max: 88, value: settings.rowHeight, dataset: { setting: "rowHeight" } })
         );
       };
       const onChange = (event) => {
@@ -3748,21 +4302,21 @@ ${summary}
       const render = () => {
         body.replaceChildren();
         repository.read().clients.forEach((client, index, clients) => {
-          const row = make6(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
-          const note = make6(documentObject, "input", { value: client.note, placeholder: `@${client.username}`, dataset: { role: "note", id: client.id } });
+          const row = make7(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
+          const note = make7(documentObject, "input", { value: client.note, placeholder: `@${client.username}`, dataset: { role: "note", id: client.id } });
           row.append(
             note,
-            make6(documentObject, "button", { type: "button", disabled: index === 0, dataset: { action: "up", index } }, "↑"),
-            make6(documentObject, "button", { type: "button", disabled: index === clients.length - 1, dataset: { action: "down", index } }, "↓"),
-            make6(documentObject, "button", { type: "button", dataset: { action: "delete", id: client.id } }, "删除")
+            make7(documentObject, "button", { type: "button", disabled: index === 0, dataset: { action: "up", index } }, "↑"),
+            make7(documentObject, "button", { type: "button", disabled: index === clients.length - 1, dataset: { action: "down", index } }, "↓"),
+            make7(documentObject, "button", { type: "button", dataset: { action: "delete", id: client.id } }, "删除")
           );
           body.append(row);
         });
-        const add = make6(documentObject, "div", { className: "vgen-nya-settings__toolbar" });
+        const add = make7(documentObject, "div", { className: "vgen-nya-settings__toolbar" });
         add.append(
-          make6(documentObject, "input", { placeholder: "VGen username", dataset: { role: "username" } }),
-          make6(documentObject, "input", { placeholder: "备注（可选）", dataset: { role: "new-note" } }),
-          make6(documentObject, "button", { type: "button", dataset: { action: "add" } }, "添加")
+          make7(documentObject, "input", { placeholder: "VGen username", dataset: { role: "username" } }),
+          make7(documentObject, "input", { placeholder: "备注（可选）", dataset: { role: "new-note" } }),
+          make7(documentObject, "button", { type: "button", dataset: { action: "add" } }, "添加")
         );
         body.append(add);
       };
@@ -3802,13 +4356,13 @@ ${summary}
   }
   function renderDiagnostics(diagnostics) {
     return ({ documentObject, body, use }) => {
-      const status = make6(documentObject, "p");
+      const status = make7(documentObject, "p");
       const render = () => {
         status.textContent = diagnostics.active ? `运行中 · ${diagnostics.events.length} events` : "已停止；无诊断网络 hook";
       };
-      const start2 = make6(documentObject, "button", { type: "button", dataset: { action: "start" } }, "启动诊断");
-      const stop = make6(documentObject, "button", { type: "button", dataset: { action: "stop" } }, "停止诊断");
-      const exportButton = make6(documentObject, "button", { type: "button", dataset: { action: "export" } }, "导出报告");
+      const start2 = make7(documentObject, "button", { type: "button", dataset: { action: "start" } }, "启动诊断");
+      const stop = make7(documentObject, "button", { type: "button", dataset: { action: "stop" } }, "停止诊断");
+      const exportButton = make7(documentObject, "button", { type: "button", dataset: { action: "export" } }, "导出报告");
       body.replaceChildren(status, start2, stop, exportButton);
       const onClick = (event) => {
         const action = event.target?.dataset?.action;
@@ -3818,7 +4372,7 @@ ${summary}
           const blob = new Blob([JSON.stringify(diagnostics.snapshot(), null, 2)], { type: "application/json;charset=utf-8" });
           const view = documentObject.defaultView || globalThis;
           const url = view.URL.createObjectURL(blob);
-          const anchor = make6(documentObject, "a", { href: url, download: `vgen-nya-chat-diagnostics-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.json` });
+          const anchor = make7(documentObject, "a", { href: url, download: `vgen-nya-chat-diagnostics-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.json` });
           body.append(anchor);
           anchor.click();
           anchor.remove();
@@ -3836,12 +4390,13 @@ ${summary}
       if (item.id === "chat") return {
         ...item,
         tabs: [
-          { id: "display", label: "聊天显示", sections: [{ id: "display", title: "Seen / 时间戳 / Reaction", render: renderChat(repository, [
+          { id: "display", label: "聊天显示", sections: [{ id: "display", title: "Seen / 时间戳 / Reaction / 搜索", render: renderChat(repository, [
             ["enabled", "启用 Chat Assistant"],
             ["showSeen", "显示 seen"],
             ["showTimestamps", "显示时间戳"],
             ["showStatusBar", "显示气泡状态长条"],
-            ["compactReactions", "紧凑 Reaction"]
+            ["compactReactions", "紧凑 Reaction"],
+            ["searchEnabled", "启用聊天全文搜索"]
           ]) }] },
           { id: "read-control", label: "已读控制", sections: [{ id: "read-control", title: "服务器已读边界", render: renderChat(repository, [
             ["keepUnread", "保持服务器未读，手动释放"],
@@ -3866,7 +4421,7 @@ ${summary}
   }
 
   // src/settings/order-settings.js
-  function make7(documentObject, tag, attributes = {}, text = "") {
+  function make8(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
       if (key === "dataset") Object.assign(node.dataset, value);
@@ -3880,10 +4435,10 @@ ${summary}
     return ({ documentObject, body, use }) => {
       const render = () => {
         const settings = repository.read();
-        const copy = make7(documentObject, "label", { className: "vgen-nya-settings__check" });
-        copy.append(make7(documentObject, "input", { type: "checkbox", checked: settings.copyButtons, dataset: { setting: "copyButtons" } }), documentObject.createTextNode(" 启用 Copy ID / Profile URL"));
-        const background = make7(documentObject, "label", { className: "vgen-nya-settings__check" });
-        background.append(make7(documentObject, "input", { type: "checkbox", checked: settings.clientBackground, dataset: { setting: "clientBackground" } }), documentObject.createTextNode(" 启用 Client Background"));
+        const copy = make8(documentObject, "label", { className: "vgen-nya-settings__check" });
+        copy.append(make8(documentObject, "input", { type: "checkbox", checked: settings.copyButtons, dataset: { setting: "copyButtons" } }), documentObject.createTextNode(" 启用 Copy ID / Profile URL"));
+        const background = make8(documentObject, "label", { className: "vgen-nya-settings__check" });
+        background.append(make8(documentObject, "input", { type: "checkbox", checked: settings.clientBackground, dataset: { setting: "clientBackground" } }), documentObject.createTextNode(" 启用 Client Background"));
         body.replaceChildren(copy, background);
       };
       const onChange = (event) => {
@@ -4940,14 +5495,14 @@ ${summary}
 .vgen-nya-order-assistant__status{opacity:.72}.vgen-nya-order-assistant__warning{border-color:#d97706!important;background:#f59e0b22!important;color:inherit;font-weight:650}.vgen-nya-order-assistant__error{color:#b42318}
 .vgen-nya-order-assistant__popover{margin-top:8px;padding:9px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:8px;background:Canvas;color:CanvasText;box-shadow:0 8px 24px #0003;max-height:320px;overflow:auto}.vgen-nya-order-assistant__popover[hidden]{display:none}.vgen-nya-order-assistant__popover-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}.vgen-nya-order-assistant__review{padding:8px 0;border-top:1px solid color-mix(in srgb,currentColor 16%,transparent)}.vgen-nya-order-assistant__review:first-of-type{border-top:0}.vgen-nya-order-assistant__review-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;opacity:.75}.vgen-nya-order-assistant__review-body{margin:5px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;cursor:text}
 `;
-  function make8(documentObject, tagName, className = "", text = "") {
+  function make9(documentObject, tagName, className = "", text = "") {
     const node = documentObject.createElement(tagName);
     node.className = className;
     node.textContent = text;
     return node;
   }
   function control(documentObject, text, action) {
-    const button = make8(documentObject, "button", "notranslate", text);
+    const button = make9(documentObject, "button", "notranslate", text);
     button.type = "button";
     button.translate = false;
     button.dataset.action = action;
@@ -4980,7 +5535,7 @@ ${summary}
       if (this.mounted) return false;
       this.mounted = true;
       const documentObject = this.panel.ownerDocument;
-      this.root = make8(documentObject, "section", "vgen-nya-order-assistant");
+      this.root = make9(documentObject, "section", "vgen-nya-order-assistant");
       this.root.dataset.vgenNyaUi = "order-assistant";
       this.root.setAttribute("aria-label", "Client Background");
       (this.identity.mountTarget || this.panel).append(this.root);
@@ -4992,7 +5547,7 @@ ${summary}
       if (!this.root) return;
       const documentObject = this.root.ownerDocument;
       this.root.replaceChildren();
-      const tools = make8(documentObject, "div", "vgen-nya-order-assistant__tools");
+      const tools = make9(documentObject, "div", "vgen-nya-order-assistant__tools");
       if (this.settings.copyButtons) {
         const copyId = control(documentObject, "Copy ID", "copy-id");
         const copyUrl = control(documentObject, "Copy Profile URL", "copy-url");
@@ -5010,19 +5565,19 @@ ${summary}
     #renderBackgroundControl(tools) {
       const documentObject = tools.ownerDocument;
       if (!this.result) {
-        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "Client Background: loading…"));
+        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "Client Background: loading…"));
         return;
       }
       if (this.result.state === REVIEW_SOURCE_STATES.error) {
-        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status vgen-nya-order-assistant__error notranslate", "公开评价加载失败"));
+        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status vgen-nya-order-assistant__error notranslate", "公开评价加载失败"));
         return;
       }
       if (this.result.state === REVIEW_SOURCE_STATES.unavailable) {
-        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "公开评价不可用"));
+        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "公开评价不可用"));
         return;
       }
       if (this.result.state === REVIEW_SOURCE_STATES.empty) {
-        tools.append(make8(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "暂无公开评价"));
+        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "暂无公开评价"));
         return;
       }
       const negativeCount = Number.isFinite(this.result.negativeCount) ? this.result.negativeCount : this.result.negativeReviews.length;
@@ -5035,10 +5590,10 @@ ${summary}
     }
     #createPopover() {
       const documentObject = this.root.ownerDocument;
-      const popover = make8(documentObject, "div", "vgen-nya-order-assistant__popover");
+      const popover = make9(documentObject, "div", "vgen-nya-order-assistant__popover");
       popover.hidden = true;
-      const header = make8(documentObject, "div", "vgen-nya-order-assistant__popover-head");
-      const title = make8(documentObject, "strong", "notranslate", this.result.negativeReviews.length ? "不推荐的公开评价" : "公开评价");
+      const header = make9(documentObject, "div", "vgen-nya-order-assistant__popover-head");
+      const title = make9(documentObject, "strong", "notranslate", this.result.negativeReviews.length ? "不推荐的公开评价" : "公开评价");
       title.translate = false;
       const close = control(documentObject, "Close", "close-reviews");
       close.addEventListener("click", () => {
@@ -5048,13 +5603,13 @@ ${summary}
       popover.append(header);
       const reviews = this.result.negativeReviews.length ? this.result.negativeReviews : this.result.reviews;
       for (const review of reviews) {
-        const article = make8(documentObject, "article", "vgen-nya-order-assistant__review");
-        const meta = make8(documentObject, "div", "vgen-nya-order-assistant__review-meta");
-        const label = make8(documentObject, "strong", "notranslate", reviewLabel(review));
+        const article = make9(documentObject, "article", "vgen-nya-order-assistant__review");
+        const meta = make9(documentObject, "div", "vgen-nya-order-assistant__review-meta");
+        const label = make9(documentObject, "strong", "notranslate", reviewLabel(review));
         label.translate = false;
         meta.append(label);
-        for (const value of [review.reviewer, review.date, review.context].filter(Boolean)) meta.append(make8(documentObject, "span", "", value));
-        const body = make8(documentObject, "p", "vgen-nya-order-assistant__review-body", review.body);
+        for (const value of [review.reviewer, review.date, review.context].filter(Boolean)) meta.append(make9(documentObject, "span", "", value));
+        const body = make9(documentObject, "p", "vgen-nya-order-assistant__review-body", review.body);
         body.translate = true;
         const copy = control(documentObject, "Copy", "copy-review");
         copy.addEventListener("click", () => void this.copy(review.body, copy));
@@ -5735,14 +6290,14 @@ ${summary}
 .vgen-nya-review-assistant__body{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;cursor:text}
 .vgen-nya-review-assistant__actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 `;
-  function make9(documentObject, tagName, className = "", text = "") {
+  function make10(documentObject, tagName, className = "", text = "") {
     const node = documentObject.createElement(tagName);
     node.className = className;
     node.textContent = text;
     return node;
   }
   function control2(documentObject, text, action) {
-    const button = make9(documentObject, "button", "notranslate", text);
+    const button = make10(documentObject, "button", "notranslate", text);
     button.type = "button";
     button.translate = false;
     button.dataset.action = action;
@@ -5786,7 +6341,7 @@ ${summary}
       const documentObject = this.surface?.mountTarget?.ownerDocument || this.surface?.editor?.element?.ownerDocument;
       if (!documentObject) return false;
       this.mounted = true;
-      this.root = make9(documentObject, "section", "vgen-nya-review-assistant");
+      this.root = make10(documentObject, "section", "vgen-nya-review-assistant");
       this.root.dataset.vgenNyaUi = "review-assistant";
       this.root.setAttribute("aria-label", "Review Assistant");
       const mountPoint = this.surface.mountTarget || this.surface.editor?.element?.parentElement || documentObject.body;
@@ -5809,22 +6364,22 @@ ${summary}
       if (snapshot.candidate) this.root.append(this.#result(documentObject, snapshot));
     }
     #controls(documentObject, snapshot) {
-      const wrap = make9(documentObject, "div", "vgen-nya-review-assistant__controls");
-      const keywords = make9(documentObject, "input", "vgen-nya-review-assistant__keywords");
+      const wrap = make10(documentObject, "div", "vgen-nya-review-assistant__controls");
+      const keywords = make10(documentObject, "input", "vgen-nya-review-assistant__keywords");
       keywords.value = this.keywordsText;
       keywords.placeholder = "关键词 / 要点（逗号分隔，可选）";
       keywords.dataset.role = "keywords";
-      const length = make9(documentObject, "select");
+      const length = make10(documentObject, "select");
       for (const option of REVIEW_LENGTHS) {
-        const node = make9(documentObject, "option", "", option);
+        const node = make10(documentObject, "option", "", option);
         node.value = option;
         length.append(node);
       }
       length.value = this.length;
       length.dataset.role = "length";
-      const star = make9(documentObject, "select");
+      const star = make10(documentObject, "select");
       for (const degree of REVIEW_STAR_DEGREES) {
-        const node = make9(documentObject, "option", "", `${degree} 星`);
+        const node = make10(documentObject, "option", "", `${degree} 星`);
         node.value = String(degree);
         star.append(node);
       }
@@ -5837,7 +6392,7 @@ ${summary}
       return wrap;
     }
     #status(documentObject, snapshot) {
-      const status = make9(documentObject, "p", "vgen-nya-review-assistant__status notranslate");
+      const status = make10(documentObject, "p", "vgen-nya-review-assistant__status notranslate");
       status.translate = false;
       if (snapshot.generating) {
         status.textContent = "生成中…";
@@ -5857,10 +6412,10 @@ ${summary}
       return status;
     }
     #result(documentObject, snapshot) {
-      const result = make9(documentObject, "div", "vgen-nya-review-assistant__result");
+      const result = make10(documentObject, "div", "vgen-nya-review-assistant__result");
       result.append(this.#block(documentObject, "English（最终提交文本）", snapshot.candidate.english));
       result.append(this.#block(documentObject, "中文对照（仅参考，不写入）", snapshot.candidate.chinese));
-      const actions = make9(documentObject, "div", "vgen-nya-review-assistant__actions");
+      const actions = make10(documentObject, "div", "vgen-nya-review-assistant__actions");
       const copyEnglish = control2(documentObject, "Copy English", "copy-english");
       const copyChinese = control2(documentObject, "Copy Chinese", "copy-chinese");
       const fill = control2(documentObject, "Fill Review", "fill");
@@ -5872,10 +6427,10 @@ ${summary}
       return result;
     }
     #block(documentObject, label, text) {
-      const block = make9(documentObject, "div", "vgen-nya-review-assistant__block");
-      const head = make9(documentObject, "span", "vgen-nya-review-assistant__label notranslate", label);
+      const block = make10(documentObject, "div", "vgen-nya-review-assistant__block");
+      const head = make10(documentObject, "span", "vgen-nya-review-assistant__label notranslate", label);
       head.translate = false;
-      const body = make9(documentObject, "p", "vgen-nya-review-assistant__body", text);
+      const body = make10(documentObject, "p", "vgen-nya-review-assistant__body", text);
       body.translate = true;
       block.append(head, body);
       return block;
@@ -6011,7 +6566,7 @@ ${summary}
   };
 
   // src/settings/review-settings.js
-  function make10(documentObject, tag, attributes = {}, text = "") {
+  function make11(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
       if (key === "dataset") Object.assign(node.dataset, value);
@@ -6025,21 +6580,21 @@ ${summary}
     return ({ documentObject, body, use }) => {
       const render = () => {
         const settings = repository.read().settings;
-        const length = make10(documentObject, "select", { dataset: { setting: "defaultLength" } });
-        for (const option of REVIEW_LENGTHS) length.append(make10(documentObject, "option", { value: option }, option));
+        const length = make11(documentObject, "select", { dataset: { setting: "defaultLength" } });
+        for (const option of REVIEW_LENGTHS) length.append(make11(documentObject, "option", { value: option }, option));
         length.value = settings.defaultLength;
-        const star = make10(documentObject, "select", { dataset: { setting: "defaultStarDegree" } });
-        for (const degree of REVIEW_STAR_DEGREES) star.append(make10(documentObject, "option", { value: String(degree) }, `${degree} 星`));
+        const star = make11(documentObject, "select", { dataset: { setting: "defaultStarDegree" } });
+        for (const degree of REVIEW_STAR_DEGREES) star.append(make11(documentObject, "option", { value: String(degree) }, `${degree} 星`));
         star.value = String(settings.defaultStarDegree);
-        const row = make10(documentObject, "div", { className: "vgen-nya-settings__check" });
+        const row = make11(documentObject, "div", { className: "vgen-nya-settings__check" });
         row.append(
-          make10(documentObject, "label", {}, "默认长度 "),
+          make11(documentObject, "label", {}, "默认长度 "),
           length,
-          make10(documentObject, "label", {}, " 默认星级倾向 "),
+          make11(documentObject, "label", {}, " 默认星级倾向 "),
           star
         );
         body.replaceChildren(
-          make10(documentObject, "p", { className: "vgen-nya-settings__hint" }, "生成评价时的默认参数。星级 1～5 表示「希望生成的评价倾向程度」，不是改写 VGen 的真实评分。"),
+          make11(documentObject, "p", { className: "vgen-nya-settings__hint" }, "生成评价时的默认参数。星级 1～5 表示「希望生成的评价倾向程度」，不是改写 VGen 的真实评分。"),
           row
         );
       };
@@ -6060,20 +6615,20 @@ ${summary}
       const render = () => {
         const provider = repository.read().provider;
         const configured = isReviewProviderConfigured(provider);
-        const status = make10(
+        const status = make11(
           documentObject,
           "p",
           { className: "vgen-nya-settings__hint" },
           configured ? `已配置 Provider（API Key ${maskApiKey(provider.apiKey)}）` : "尚未配置 Provider。"
         );
-        const baseUrl = make10(documentObject, "input", { type: "text", value: provider.baseUrl, placeholder: "https://api.openai.com/v1", dataset: { setting: "baseUrl" }, "aria-label": "Base URL" });
-        const apiKey = make10(documentObject, "input", { type: "password", value: provider.apiKey, placeholder: "sk-…", dataset: { setting: "apiKey" }, autocomplete: "off", "aria-label": "API Key" });
-        const model = make10(documentObject, "input", { type: "text", value: provider.model, placeholder: "gpt-4o-mini", dataset: { setting: "model" }, "aria-label": "Model" });
-        const systemPrompt = make10(documentObject, "textarea", { rows: 8, dataset: { setting: "systemPrompt" }, "aria-label": "System Prompt" });
+        const baseUrl = make11(documentObject, "input", { type: "text", value: provider.baseUrl, placeholder: "https://api.openai.com/v1", dataset: { setting: "baseUrl" }, "aria-label": "Base URL" });
+        const apiKey = make11(documentObject, "input", { type: "password", value: provider.apiKey, placeholder: "sk-…", dataset: { setting: "apiKey" }, autocomplete: "off", "aria-label": "API Key" });
+        const model = make11(documentObject, "input", { type: "text", value: provider.model, placeholder: "gpt-4o-mini", dataset: { setting: "model" }, "aria-label": "Model" });
+        const systemPrompt = make11(documentObject, "textarea", { rows: 8, dataset: { setting: "systemPrompt" }, "aria-label": "System Prompt" });
         systemPrompt.value = provider.systemPrompt;
         const field = (label, input) => {
-          const row = make10(documentObject, "label", { className: "vgen-nya-settings__check" });
-          row.append(make10(documentObject, "span", {}, label), input);
+          const row = make11(documentObject, "label", { className: "vgen-nya-settings__check" });
+          row.append(make11(documentObject, "span", {}, label), input);
           return row;
         };
         body.replaceChildren(

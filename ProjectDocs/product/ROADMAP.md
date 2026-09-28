@@ -94,15 +94,16 @@
 - 模型强度：Medium
 
 ## Iteration 7 — Chat Full-text Search
-- Goal：关键词→消息→定位；先确认消息分页 API
-- Modules：Chat Assistant
-- Non-goals：不持续扫描整个聊天 DOM
-- Dependencies：I3、消息分页 API 确认（BLOCKED_NEEDS_SAFE_CONVERSATION-01）
-- Acceptance：搜索返回 conversation/message 并定位
-- L1：分页拉取；L2：本地索引/搜索；L3：性能
-- Browser 验证：已读历史会话观察分页请求
-- STOP：无法取得分页 API → 仅实现已加载 DOM 搜索
-- 模型强度：Medium（API 确认后）
+- Status：**MERGE REVIEW READY**（`feat/chat-fulltext-search`；`FUNCTIONAL = PASS`、`UI_INTEGRATION_SAFE = PASS`、`CHAT-SEARCH-LIVE-01 = PASS`；`npm test` 152/152、L1 120/120、L2 130/130、`release:check` 28/28）
+- Goal：关键词→消息→定位；优先 Stream Chat SDK 分页，降级已加载消息
+- Modules：Chat Assistant（ChatHistoryAdapter / ChatSearchEngine / ChatSearchLocator / ChatSearchController）
+- Non-goals：不持续扫描整个聊天 DOM；不跨 client 全局搜索；不做语义/AI 搜索；不自动 mark read
+- Dependencies：I3（复用 Chat lifecycle / active channel detection）
+- Acceptance：搜索返回 conversation/message 并定位；每 channel 有界缓存；abort/stale 保护；fill 只读
+- L1：分页/搜索/缓存/abort/locate；L2：search→locate、query/channel change、cleanup、cache reuse；L3：idle 零开销
+- Browser 验证：`CHAT-SEARCH-LIVE-01 = PASS`（隔离 Profile 已登录；分页 `channel.query({messages:{limit,id_lt}})` 真实可用、游标为每页最旧 `messages[0].id`；`channel.search` 返回 504 不可用 → 正式策略为 pagination + 本地 substring；已加载消息定位 scrollIntoView+高亮 PASS；`channel.state.loadMore` 不存在 → 用 `id_around` 加载历史区域）
+- STOP：无法取得分页 API → 仅实现已加载消息搜索（已内置 fallback 并明确 UI 标注）
+- 模型强度：Medium
 
 ## Iteration 8 — Export Adapter（不实现飞书）
 - Goal：NormalizedOrder → ExportAdapter（预留 FeishuExporter）

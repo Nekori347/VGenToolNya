@@ -1,5 +1,6 @@
 import { StreamChatAdapter } from './stream-chat-adapter.js';
 import { QuickReplyController } from './quick-reply.js';
+import { ChatSearchController, CHAT_SEARCH_CSS } from './chat-search-ui.js';
 
 const CHAT_PORTAL_SELECTOR = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
 
@@ -15,6 +16,8 @@ const CHAT_CSS = `
 [data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
 [data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
 .vgen-nya-quick-replies,.vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-preset-chip[aria-pressed="true"]{border-color:#3b82f6;background:#dbeafe;color:#174b8a}.vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}
+${CHAT_SEARCH_CSS}
+.vgen-nya-search-highlight{outline:2px solid #f59e0b!important;outline-offset:1px;border-radius:8px}
 `;
 
 export class ChatAssistantSession {
@@ -28,6 +31,7 @@ export class ChatAssistantSession {
         this.cid = null;
         this.mounted = false;
         this.quickReplies = textPresetEngine ? new QuickReplyController({ engine: textPresetEngine, adapter }) : null;
+        this.search = new ChatSearchController({ surface, adapter, documentObject: surface?.ownerDocument || globalThis.document });
     }
 
     mount() {
@@ -40,7 +44,7 @@ export class ChatAssistantSession {
                     (record.addedNodes?.length || 0) > 0
                     && [...record.addedNodes].every((node) => node.dataset?.vgenNyaUi)
                 ));
-                if (onlyOwnInsertions || records.every((record) => this.quickReplies?.ownsMutation(record))) return;
+                if (onlyOwnInsertions || records.every((record) => this.quickReplies?.ownsMutation(record) || this.search?.ownsMutation(record))) return;
                 this.refresh();
             });
             this.observer.observe(this.surface, { childList: true, subtree: true });
@@ -58,7 +62,17 @@ export class ChatAssistantSession {
         });
         this.cid = result?.cid || null;
         this.quickReplies?.refresh();
+        this.#syncSearch(settings);
         return result;
+    }
+
+    #syncSearch(settings) {
+        if (settings.searchEnabled !== false) {
+            this.search.mount();
+            this.search.refresh();
+        } else {
+            this.search.unmount();
+        }
     }
 
     unmount() {
@@ -67,6 +81,7 @@ export class ChatAssistantSession {
         this.observer = null;
         this.adapter.cleanup?.();
         this.quickReplies?.cleanup();
+        this.search.unmount();
         this.cid = null;
         this.mounted = false;
         return true;
