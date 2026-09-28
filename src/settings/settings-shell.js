@@ -1,28 +1,32 @@
 import { SETTINGS_NAVIGATION } from './navigation.js';
+import { iconSvg } from '../ui/icons.js';
+import { UI_TOKENS_CSS } from '../ui/tokens.js';
 
 const SHELL_CSS = `
-.vgen-nya-settings { color: #242424; background: #fff; border: 1px solid #ddd; border-radius: 12px; display: grid; grid-template-columns: 180px minmax(0, 1fr); min-height: 420px; overflow: hidden; font: 14px/1.45 system-ui, sans-serif; }
+.vgen-nya-settings { color: var(--vgn-text); background: var(--vgn-surface); border: 1px solid var(--vgn-border); border-radius: var(--vgn-radius-xl); display: grid; grid-template-columns: 180px minmax(0, 1fr); min-height: 420px; overflow: hidden; font: 14px/1.45 system-ui, sans-serif; }
 .vgen-nya-settings * { box-sizing: border-box; }
-.vgen-nya-settings__nav { padding: 14px 10px; background: #f6f7f8; border-right: 1px solid #e4e5e7; }
+.vgen-nya-settings__nav { padding: 14px 10px; background: var(--vgn-surface-2); border-right: 1px solid var(--vgn-border-2); }
 .vgen-nya-settings__nav-title { margin: 0 8px 12px; font-size: 16px; }
-.vgen-nya-settings__nav button, .vgen-nya-settings__tabs button, .vgen-nya-settings__section-toggle { color: #242424; font: inherit; }
-.vgen-nya-settings__nav button { width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; text-align: left; background: transparent; cursor: pointer; }
-.vgen-nya-settings__nav button[aria-current="page"] { background: #e6f1ff; color: #145dab; font-weight: 650; }
+.vgen-nya-settings__nav button, .vgen-nya-settings__tabs button, .vgen-nya-settings__section-toggle { color: var(--vgn-text); font: inherit; }
+.vgen-nya-settings__nav button { width: 100%; padding: 8px 10px; border: 0; border-radius: var(--vgn-radius-sm); text-align: left; background: transparent; cursor: pointer; }
+.vgen-nya-settings__nav button:hover { background: var(--vgn-control); }
+.vgen-nya-settings__nav button[aria-current="page"] { background: var(--vgn-accent-soft); color: var(--vgn-accent-strong); font-weight: 650; }
 .vgen-nya-settings__main { min-width: 0; padding: 18px; }
 .vgen-nya-settings__heading { margin: 0 0 12px; font-size: 20px; }
-.vgen-nya-settings__tabs { display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid #ddd; }
+.vgen-nya-settings__tabs { display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid var(--vgn-border); }
 .vgen-nya-settings__tabs button { border: 0; border-bottom: 2px solid transparent; padding: 8px 10px; background: transparent; white-space: nowrap; cursor: pointer; }
-.vgen-nya-settings__tabs button[aria-selected="true"] { border-bottom-color: #1976d2; color: #145dab; font-weight: 650; }
+.vgen-nya-settings__tabs button[aria-selected="true"] { border-bottom-color: var(--vgn-accent); color: var(--vgn-accent-strong); font-weight: 650; }
 .vgen-nya-settings__panels { padding-top: 14px; }
-.vgen-nya-settings__section { border: 1px solid #e1e1e1; border-radius: 9px; margin-bottom: 10px; overflow: hidden; }
-.vgen-nya-settings__section-toggle { display: flex; justify-content: space-between; width: 100%; padding: 11px 13px; border: 0; background: #fafafa; cursor: pointer; font-weight: 650; }
-.vgen-nya-settings__section-body { padding: 12px 13px; color: #666; }
-.vgen-nya-settings__preset-row { display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee; }
-.vgen-nya-settings__preset-row button,.vgen-nya-settings__preset-editor button,.vgen-nya-settings__preset-add button{padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;background:#f3f4f6;color:#242424;cursor:pointer;font:inherit}.vgen-nya-settings__preset-row button:disabled,.vgen-nya-settings__preset-editor button:disabled{opacity:.45;cursor:default}
+.vgen-nya-settings__section { border: 1px solid var(--vgn-border-2); border-radius: var(--vgn-radius-md); margin-bottom: 10px; overflow: hidden; }
+.vgen-nya-settings__section-toggle { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 11px 13px; border: 0; background: var(--vgn-surface-3); cursor: pointer; font-weight: 650; }
+.vgen-nya-settings__section-chevron { display: inline-flex; align-items: center; color: var(--vgn-text-muted); }
+.vgen-nya-settings__section-body { padding: 12px 13px; color: var(--vgn-text-muted); }
+.vgen-nya-settings__preset-row { display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--vgn-border-2); }
+.vgen-nya-settings__preset-row button,.vgen-nya-settings__preset-editor button,.vgen-nya-settings__preset-add button{padding:5px 8px;border:1px solid var(--vgn-border);border-radius:var(--vgn-radius-sm);background:var(--vgn-control);color:var(--vgn-text);cursor:pointer;font:inherit}.vgen-nya-settings__preset-row button:hover,.vgen-nya-settings__preset-editor button:hover{background:var(--vgn-control-hover)}.vgen-nya-settings__preset-row button:disabled,.vgen-nya-settings__preset-editor button:disabled{opacity:.45;cursor:default}
 .vgen-nya-settings__check { display:block;margin:7px 0; }
 .vgen-nya-settings__toolbar { margin-bottom:8px; }
-.vgen-nya-settings__hint{margin:0 0 10px;color:inherit;opacity:.72}.vgen-nya-settings__preset-editor{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(180px,1.4fr) minmax(100px,1fr) repeat(4,auto);gap:7px;align-items:center;padding:8px 0;border-bottom:1px solid #e5e7eb}.vgen-nya-settings__preset-editor input,.vgen-nya-settings__preset-editor textarea,.vgen-nya-settings__preset-add input,.vgen-nya-settings__preset-add textarea{width:100%;min-width:0;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;background:inherit;color:inherit;font:inherit}.vgen-nya-settings__preset-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72}.vgen-nya-settings__preset-add{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.8fr) auto;gap:7px;align-items:center;margin-top:12px}.vgen-nya-settings__preset-status{min-height:1.4em;margin:8px 0 0}.vgen-nya-settings__preset-status[data-error="true"]{color:#c62828}
-@media (max-width: 680px) { .vgen-nya-settings { grid-template-columns: 1fr; } .vgen-nya-settings__nav { border-right: 0; border-bottom: 1px solid #e4e5e7; } }
+.vgen-nya-settings__hint{margin:0 0 10px;color:inherit;opacity:.72}.vgen-nya-settings__preset-editor{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(180px,1.4fr) minmax(100px,1fr) repeat(4,auto);gap:7px;align-items:center;padding:8px 0;border-bottom:1px solid var(--vgn-border-2)}.vgen-nya-settings__preset-editor input,.vgen-nya-settings__preset-editor textarea,.vgen-nya-settings__preset-add input,.vgen-nya-settings__preset-add textarea{width:100%;min-width:0;padding:6px 8px;border:1px solid var(--vgn-border);border-radius:var(--vgn-radius-md);background:var(--vgn-surface);color:var(--vgn-text);font:inherit}.vgen-nya-settings__preset-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72}.vgen-nya-settings__preset-add{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.8fr) auto;gap:7px;align-items:center;margin-top:12px}.vgen-nya-settings__preset-status{min-height:1.4em;margin:8px 0 0}.vgen-nya-settings__preset-status[data-error="true"]{color:var(--vgn-danger-strong)}
+@media (max-width: 680px) { .vgen-nya-settings { grid-template-columns: 1fr; } .vgen-nya-settings__nav { border-right: 0; border-bottom: 1px solid var(--vgn-border-2); } }
 `;
 
 function element(documentObject, tagName, attributes = {}, text = '') {
@@ -104,9 +108,11 @@ export function createSettingsShell({ navigation = SETTINGS_NAVIGATION } = {}) {
                 'data-id': sectionKey,
                 'aria-expanded': String(expanded),
             });
+            const chevron = element(documentObject, 'span', { className: 'vgen-nya-settings__section-chevron', 'aria-hidden': 'true' });
+            chevron.innerHTML = iconSvg(expanded ? 'chevronUp' : 'chevronDown', 14);
             toggle.append(
                 element(documentObject, 'span', {}, section.title),
-                element(documentObject, 'span', { 'aria-hidden': 'true' }, expanded ? '−' : '+'),
+                chevron,
             );
             const body = element(documentObject, 'div', { className: 'vgen-nya-settings__section-body' }, section.description);
             body.hidden = !expanded;
@@ -166,7 +172,7 @@ export function createSettingsShell({ navigation = SETTINGS_NAVIGATION } = {}) {
                 translate: 'no',
             });
             const style = element(documentObject, 'style');
-            style.textContent = SHELL_CSS;
+            style.textContent = UI_TOKENS_CSS + SHELL_CSS;
             const sidebar = element(documentObject, 'aside', { className: 'vgen-nya-settings__nav' });
             sidebar.append(element(documentObject, 'h2', { className: 'vgen-nya-settings__nav-title' }, 'VGenToolNya'));
             navContainer = element(documentObject, 'nav', { 'aria-label': '功能设置' });

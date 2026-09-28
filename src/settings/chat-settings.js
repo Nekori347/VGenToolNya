@@ -1,3 +1,5 @@
+import { setButtonIcon } from '../ui/icons.js';
+
 function make(documentObject, tag, attributes = {}, text = '') {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
@@ -7,6 +9,12 @@ function make(documentObject, tag, attributes = {}, text = '') {
     }
     if (text) node.textContent = text;
     return node;
+}
+
+function reorderButton(documentObject, action, label, index, disabled) {
+    const button = make(documentObject, 'button', { type: 'button', disabled, dataset: { action, index } });
+    setButtonIcon(button, action === 'up' ? 'arrowUp' : 'arrowDown', { label });
+    return button;
 }
 
 function check(documentObject, label, checked, setting) {
@@ -69,8 +77,8 @@ function renderClientManager(repository) {
                 const note = make(documentObject, 'input', { value: client.note, placeholder: `@${client.username}`, dataset: { role: 'note', id: client.id } });
                 row.append(
                     note,
-                    make(documentObject, 'button', { type: 'button', disabled: index === 0, dataset: { action: 'up', index } }, '↑'),
-                    make(documentObject, 'button', { type: 'button', disabled: index === clients.length - 1, dataset: { action: 'down', index } }, '↓'),
+                    reorderButton(documentObject, 'up', '上移', index, index === 0),
+                    reorderButton(documentObject, 'down', '下移', index, index === clients.length - 1),
                     make(documentObject, 'button', { type: 'button', dataset: { action: 'delete', id: client.id } }, '删除'),
                 );
                 body.append(row);

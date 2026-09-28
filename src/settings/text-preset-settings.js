@@ -1,3 +1,5 @@
+import { setButtonIcon } from '../ui/icons.js';
+
 function make(documentObject, tag, attributes = {}, text = '') {
     const node = documentObject.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
@@ -8,6 +10,12 @@ function make(documentObject, tag, attributes = {}, text = '') {
     }
     if (text) node.textContent = text;
     return node;
+}
+
+function reorderButton(documentObject, action, index, disabled) {
+    const button = make(documentObject, 'button', { type: 'button', dataset: { action, index }, disabled });
+    setButtonIcon(button, action === 'up' ? 'arrowUp' : 'arrowDown', { label: action === 'up' ? '上移' : '下移' });
+    return button;
 }
 
 export function renderTextPresetManager(engine, context, { contentLabel = '内容' } = {}) {
@@ -26,8 +34,8 @@ export function renderTextPresetManager(engine, context, { contentLabel = '内�
                 const preview = make(documentObject, 'span', { className: 'vgen-nya-settings__preset-preview', title: engine.preview(context, preset.id, 500) }, engine.preview(context, preset.id, 100) || '（空内容）');
                 row.append(name, content, preview,
                     make(documentObject, 'button', { type: 'button', dataset: { action: 'save', id: preset.id } }, '保存'),
-                    make(documentObject, 'button', { type: 'button', dataset: { action: 'up', index }, disabled: index === 0 }, '↑'),
-                    make(documentObject, 'button', { type: 'button', dataset: { action: 'down', index }, disabled: index === items.length - 1 }, '↓'),
+                    reorderButton(documentObject, 'up', index, index === 0),
+                    reorderButton(documentObject, 'down', index, index === items.length - 1),
                     make(documentObject, 'button', { type: 'button', dataset: { action: 'delete', id: preset.id } }, '删除'));
                 body.append(row);
             }

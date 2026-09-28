@@ -919,30 +919,84 @@
     { id: "developer", label: "开发者", tabs: [{ id: "overview", label: "概览", sections: [plannedSection("Diagnostics")] }] }
   ]);
 
+  // src/ui/icons.js
+  var PATHS = Object.freeze({
+    refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+    chevronUp: '<polyline points="18 15 12 9 6 15"/>',
+    chevronDown: '<polyline points="6 9 12 15 18 9"/>',
+    arrowUp: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
+    arrowDown: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+    chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+    plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    minus: '<line x1="5" y1="12" x2="19" y2="12"/>'
+  });
+  function iconSvg(name, size = 16) {
+    const body = PATHS[name];
+    if (!body) return "";
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+  }
+  function setButtonIcon(button, name, { size = 15, label = "" } = {}) {
+    if (!button) return button;
+    button.innerHTML = iconSvg(name, size);
+    if (label && button.ownerDocument?.createElement) {
+      const span = button.ownerDocument.createElement("span");
+      span.className = "vgn-sr-only";
+      span.textContent = label;
+      button.append(span);
+    }
+    return button;
+  }
+
+  // src/ui/tokens.js
+  var UI_TOKENS_CSS = `
+:root{
+--vgn-space-1:4px;--vgn-space-2:6px;--vgn-space-3:8px;--vgn-space-4:12px;--vgn-space-5:16px;
+--vgn-radius-sm:6px;--vgn-radius-md:8px;--vgn-radius-lg:10px;--vgn-radius-xl:12px;
+--vgn-font-xs:11px;--vgn-font-sm:12px;--vgn-font-md:13px;--vgn-font-lg:14px;
+--vgn-accent:#3b82f6;--vgn-accent-strong:#145dab;--vgn-accent-soft:#dbeafe;
+--vgn-success:#10b981;--vgn-success-strong:#3bdfbc;
+--vgn-danger:#ef4444;--vgn-danger-strong:#b42318;--vgn-danger-soft:#ff6476;
+--vgn-warning:#f59e0b;--vgn-warning-strong:#b45309;
+--vgn-surface:#ffffff;--vgn-surface-2:#f6f7f8;--vgn-surface-3:#fafafa;
+--vgn-text:#242424;--vgn-text-muted:#667085;--vgn-border:#dddddd;--vgn-border-2:#e4e5e7;
+--vgn-control:#f3f4f6;--vgn-control-hover:#e5e7eb;
+}
+@media (prefers-color-scheme:dark){
+:root{
+--vgn-surface:#1f2328;--vgn-surface-2:#262b31;--vgn-surface-3:#2c3138;
+--vgn-text:#e8eaed;--vgn-text-muted:#9aa0a6;--vgn-border:#3c4043;--vgn-border-2:#34383c;
+--vgn-control:#2c3138;--vgn-control-hover:#363b42;--vgn-accent-soft:#16324d;
+}
+}
+.vgn-sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+`;
+
   // src/settings/settings-shell.js
   var SHELL_CSS = `
-.vgen-nya-settings { color: #242424; background: #fff; border: 1px solid #ddd; border-radius: 12px; display: grid; grid-template-columns: 180px minmax(0, 1fr); min-height: 420px; overflow: hidden; font: 14px/1.45 system-ui, sans-serif; }
+.vgen-nya-settings { color: var(--vgn-text); background: var(--vgn-surface); border: 1px solid var(--vgn-border); border-radius: var(--vgn-radius-xl); display: grid; grid-template-columns: 180px minmax(0, 1fr); min-height: 420px; overflow: hidden; font: 14px/1.45 system-ui, sans-serif; }
 .vgen-nya-settings * { box-sizing: border-box; }
-.vgen-nya-settings__nav { padding: 14px 10px; background: #f6f7f8; border-right: 1px solid #e4e5e7; }
+.vgen-nya-settings__nav { padding: 14px 10px; background: var(--vgn-surface-2); border-right: 1px solid var(--vgn-border-2); }
 .vgen-nya-settings__nav-title { margin: 0 8px 12px; font-size: 16px; }
-.vgen-nya-settings__nav button, .vgen-nya-settings__tabs button, .vgen-nya-settings__section-toggle { color: #242424; font: inherit; }
-.vgen-nya-settings__nav button { width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; text-align: left; background: transparent; cursor: pointer; }
-.vgen-nya-settings__nav button[aria-current="page"] { background: #e6f1ff; color: #145dab; font-weight: 650; }
+.vgen-nya-settings__nav button, .vgen-nya-settings__tabs button, .vgen-nya-settings__section-toggle { color: var(--vgn-text); font: inherit; }
+.vgen-nya-settings__nav button { width: 100%; padding: 8px 10px; border: 0; border-radius: var(--vgn-radius-sm); text-align: left; background: transparent; cursor: pointer; }
+.vgen-nya-settings__nav button:hover { background: var(--vgn-control); }
+.vgen-nya-settings__nav button[aria-current="page"] { background: var(--vgn-accent-soft); color: var(--vgn-accent-strong); font-weight: 650; }
 .vgen-nya-settings__main { min-width: 0; padding: 18px; }
 .vgen-nya-settings__heading { margin: 0 0 12px; font-size: 20px; }
-.vgen-nya-settings__tabs { display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid #ddd; }
+.vgen-nya-settings__tabs { display: flex; gap: 6px; overflow-x: auto; border-bottom: 1px solid var(--vgn-border); }
 .vgen-nya-settings__tabs button { border: 0; border-bottom: 2px solid transparent; padding: 8px 10px; background: transparent; white-space: nowrap; cursor: pointer; }
-.vgen-nya-settings__tabs button[aria-selected="true"] { border-bottom-color: #1976d2; color: #145dab; font-weight: 650; }
+.vgen-nya-settings__tabs button[aria-selected="true"] { border-bottom-color: var(--vgn-accent); color: var(--vgn-accent-strong); font-weight: 650; }
 .vgen-nya-settings__panels { padding-top: 14px; }
-.vgen-nya-settings__section { border: 1px solid #e1e1e1; border-radius: 9px; margin-bottom: 10px; overflow: hidden; }
-.vgen-nya-settings__section-toggle { display: flex; justify-content: space-between; width: 100%; padding: 11px 13px; border: 0; background: #fafafa; cursor: pointer; font-weight: 650; }
-.vgen-nya-settings__section-body { padding: 12px 13px; color: #666; }
-.vgen-nya-settings__preset-row { display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee; }
-.vgen-nya-settings__preset-row button,.vgen-nya-settings__preset-editor button,.vgen-nya-settings__preset-add button{padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;background:#f3f4f6;color:#242424;cursor:pointer;font:inherit}.vgen-nya-settings__preset-row button:disabled,.vgen-nya-settings__preset-editor button:disabled{opacity:.45;cursor:default}
+.vgen-nya-settings__section { border: 1px solid var(--vgn-border-2); border-radius: var(--vgn-radius-md); margin-bottom: 10px; overflow: hidden; }
+.vgen-nya-settings__section-toggle { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 11px 13px; border: 0; background: var(--vgn-surface-3); cursor: pointer; font-weight: 650; }
+.vgen-nya-settings__section-chevron { display: inline-flex; align-items: center; color: var(--vgn-text-muted); }
+.vgen-nya-settings__section-body { padding: 12px 13px; color: var(--vgn-text-muted); }
+.vgen-nya-settings__preset-row { display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--vgn-border-2); }
+.vgen-nya-settings__preset-row button,.vgen-nya-settings__preset-editor button,.vgen-nya-settings__preset-add button{padding:5px 8px;border:1px solid var(--vgn-border);border-radius:var(--vgn-radius-sm);background:var(--vgn-control);color:var(--vgn-text);cursor:pointer;font:inherit}.vgen-nya-settings__preset-row button:hover,.vgen-nya-settings__preset-editor button:hover{background:var(--vgn-control-hover)}.vgen-nya-settings__preset-row button:disabled,.vgen-nya-settings__preset-editor button:disabled{opacity:.45;cursor:default}
 .vgen-nya-settings__check { display:block;margin:7px 0; }
 .vgen-nya-settings__toolbar { margin-bottom:8px; }
-.vgen-nya-settings__hint{margin:0 0 10px;color:inherit;opacity:.72}.vgen-nya-settings__preset-editor{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(180px,1.4fr) minmax(100px,1fr) repeat(4,auto);gap:7px;align-items:center;padding:8px 0;border-bottom:1px solid #e5e7eb}.vgen-nya-settings__preset-editor input,.vgen-nya-settings__preset-editor textarea,.vgen-nya-settings__preset-add input,.vgen-nya-settings__preset-add textarea{width:100%;min-width:0;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;background:inherit;color:inherit;font:inherit}.vgen-nya-settings__preset-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72}.vgen-nya-settings__preset-add{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.8fr) auto;gap:7px;align-items:center;margin-top:12px}.vgen-nya-settings__preset-status{min-height:1.4em;margin:8px 0 0}.vgen-nya-settings__preset-status[data-error="true"]{color:#c62828}
-@media (max-width: 680px) { .vgen-nya-settings { grid-template-columns: 1fr; } .vgen-nya-settings__nav { border-right: 0; border-bottom: 1px solid #e4e5e7; } }
+.vgen-nya-settings__hint{margin:0 0 10px;color:inherit;opacity:.72}.vgen-nya-settings__preset-editor{display:grid;grid-template-columns:minmax(110px,.7fr) minmax(180px,1.4fr) minmax(100px,1fr) repeat(4,auto);gap:7px;align-items:center;padding:8px 0;border-bottom:1px solid var(--vgn-border-2)}.vgen-nya-settings__preset-editor input,.vgen-nya-settings__preset-editor textarea,.vgen-nya-settings__preset-add input,.vgen-nya-settings__preset-add textarea{width:100%;min-width:0;padding:6px 8px;border:1px solid var(--vgn-border);border-radius:var(--vgn-radius-md);background:var(--vgn-surface);color:var(--vgn-text);font:inherit}.vgen-nya-settings__preset-preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.72}.vgen-nya-settings__preset-add{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.8fr) auto;gap:7px;align-items:center;margin-top:12px}.vgen-nya-settings__preset-status{min-height:1.4em;margin:8px 0 0}.vgen-nya-settings__preset-status[data-error="true"]{color:var(--vgn-danger-strong)}
+@media (max-width: 680px) { .vgen-nya-settings { grid-template-columns: 1fr; } .vgen-nya-settings__nav { border-right: 0; border-bottom: 1px solid var(--vgn-border-2); } }
 `;
   function element(documentObject, tagName, attributes = {}, text = "") {
     const node = documentObject.createElement(tagName);
@@ -1017,9 +1071,11 @@
           "data-id": sectionKey,
           "aria-expanded": String(expanded)
         });
+        const chevron = element(documentObject, "span", { className: "vgen-nya-settings__section-chevron", "aria-hidden": "true" });
+        chevron.innerHTML = iconSvg(expanded ? "chevronUp" : "chevronDown", 14);
         toggle.append(
           element(documentObject, "span", {}, section.title),
-          element(documentObject, "span", { "aria-hidden": "true" }, expanded ? "−" : "+")
+          chevron
         );
         const body = element(documentObject, "div", { className: "vgen-nya-settings__section-body" }, section.description);
         body.hidden = !expanded;
@@ -1076,7 +1132,7 @@
           translate: "no"
         });
         const style = element(documentObject, "style");
-        style.textContent = SHELL_CSS;
+        style.textContent = UI_TOKENS_CSS + SHELL_CSS;
         const sidebar = element(documentObject, "aside", { className: "vgen-nya-settings__nav" });
         sidebar.append(element(documentObject, "h2", { className: "vgen-nya-settings__nav-title" }, "VGenToolNya"));
         navContainer = element(documentObject, "nav", { "aria-label": "功能设置" });
@@ -1161,6 +1217,11 @@
     if (text) node.textContent = text;
     return node;
   }
+  function reorderButton(documentObject, action, index, disabled) {
+    const button = make(documentObject, "button", { type: "button", dataset: { action, index }, disabled });
+    setButtonIcon(button, action === "up" ? "arrowUp" : "arrowDown", { label: action === "up" ? "上移" : "下移" });
+    return button;
+  }
   function renderTextPresetManager(engine, context, { contentLabel = "内容" } = {}) {
     return ({ documentObject, body, use }) => {
       let dragIndex = null;
@@ -1180,8 +1241,8 @@
             content,
             preview,
             make(documentObject, "button", { type: "button", dataset: { action: "save", id: preset.id } }, "保存"),
-            make(documentObject, "button", { type: "button", dataset: { action: "up", index }, disabled: index === 0 }, "↑"),
-            make(documentObject, "button", { type: "button", dataset: { action: "down", index }, disabled: index === items.length - 1 }, "↓"),
+            reorderButton(documentObject, "up", index, index === 0),
+            reorderButton(documentObject, "down", index, index === items.length - 1),
             make(documentObject, "button", { type: "button", dataset: { action: "delete", id: preset.id } }, "删除")
           );
           body.append(row);
@@ -1267,6 +1328,11 @@
     if (text) node.textContent = text;
     return node;
   }
+  function reorderButton2(documentObject, action, index, disabled) {
+    const button = make2(documentObject, "button", { type: "button", dataset: { action, index }, disabled });
+    setButtonIcon(button, action === "up" ? "arrowUp" : "arrowDown", { label: action === "up" ? "上移" : "下移" });
+    return button;
+  }
   function renderPresetManager(repository, domain) {
     return ({ documentObject, body, use }) => {
       const render = () => {
@@ -1279,8 +1345,8 @@
           const row = make2(documentObject, "div", { className: "vgen-nya-settings__preset-row" });
           row.append(
             make2(documentObject, "span", {}, preset.name || preset.tag || `未命名 ${index + 1}`),
-            make2(documentObject, "button", { type: "button", dataset: { action: "up", index }, disabled: index === 0 }, "↑"),
-            make2(documentObject, "button", { type: "button", dataset: { action: "down", index }, disabled: index === data.length - 1 }, "↓"),
+            reorderButton2(documentObject, "up", index, index === 0),
+            reorderButton2(documentObject, "down", index, index === data.length - 1),
             make2(documentObject, "button", { type: "button", dataset: { action: "delete", index } }, "删除")
           );
           body.append(row);
@@ -1854,7 +1920,7 @@ ${summary}
 
   // src/upload/upload-assistant.js
   var CSS = `
-.vgen-nya-upload{margin:10px 0;padding:10px;border:1px solid #cfd8e3;border-radius:10px;background:#f8fbff;color:#253247;font:13px/1.4 system-ui,sans-serif}.vgen-nya-upload *{box-sizing:border-box}.vgen-nya-upload__head{display:flex;align-items:center;gap:8px}.vgen-nya-upload__head strong{flex:1}.vgen-nya-upload button,.vgen-nya-upload select{font:inherit}.vgen-nya-upload button{cursor:pointer}.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:9px}.vgen-nya-upload__row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-upload__row>label{min-width:72px;font-weight:600}.vgen-nya-upload__row select{min-width:160px;max-width:360px}.vgen-nya-upload__groups{display:grid;gap:6px}.vgen-nya-upload__group{border:1px solid #d9e1ea;border-radius:8px;overflow:hidden}.vgen-nya-upload__group summary{padding:6px 8px;cursor:pointer}.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:5px;padding:7px}.vgen-nya-upload__tag[aria-pressed=true]{background:#1e78ca;color:#fff}.vgen-nya-upload__status{min-height:1.3em;color:#55657a}.vgen-nya-upload[data-theme=dark]{background:#1f2935;color:#eef5ff;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] .vgen-nya-upload__group{border-color:#4b5b6d}
+.vgen-nya-upload{margin:10px 0;padding:10px;border:1px solid #cfd8e3;border-radius:10px;background:#f8fbff;color:#253247;font:13px/1.4 system-ui,sans-serif}.vgen-nya-upload *{box-sizing:border-box}.vgen-nya-upload__head{display:flex;align-items:center;gap:8px}.vgen-nya-upload__head strong{flex:1}.vgen-nya-upload button,.vgen-nya-upload select{font:inherit}.vgen-nya-upload button{cursor:pointer;border:1px solid #d5dee8;border-radius:7px;padding:4px 9px;background:#f1f5fa;color:inherit}.vgen-nya-upload button:hover{background:#e7eef6}.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:9px}.vgen-nya-upload__row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-upload__row>label{min-width:72px;font-weight:600}.vgen-nya-upload__row select{min-width:160px;max-width:360px}.vgen-nya-upload__groups{display:grid;gap:6px}.vgen-nya-upload__group{border:1px solid #d9e1ea;border-radius:8px;overflow:hidden}.vgen-nya-upload__group summary{padding:6px 8px;cursor:pointer}.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:5px;padding:7px}.vgen-nya-upload__tag[aria-pressed=true]{background:var(--vgn-accent,#1e78ca);border-color:var(--vgn-accent,#1e78ca);color:#fff}.vgen-nya-upload__status{min-height:1.3em;color:#55657a}.vgen-nya-upload[data-theme=dark]{background:#1f2935;color:#eef5ff;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] .vgen-nya-upload__group{border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] button{background:#2a3543;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] button:hover{background:#334052}
 `;
   function make3(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
@@ -1899,7 +1965,7 @@ ${summary}
       this.root.addEventListener("click", (event) => this.onClick(event));
       this.root.addEventListener("change", (event) => this.onChange(event));
       const style = make3(documentObject, "style");
-      style.textContent = CSS;
+      style.textContent = UI_TOKENS_CSS + CSS;
       this.root.append(style);
       const anchor = this.adapter.findTagInput?.()?.parentElement;
       (anchor?.parentElement || this.surface).append(this.root);
@@ -1935,9 +2001,11 @@ ${summary}
       this.root.dataset.theme = snapshot.uiSettings.theme;
       this.root.replaceChildren(this.root.querySelector("style"));
       const head = make3(documentObject, "div", { className: "vgen-nya-upload__head" });
+      const refresh = make3(documentObject, "button", { type: "button", dataset: { action: "refresh" }, title: "仅刷新 Upload Assistant 配置" });
+      setButtonIcon(refresh, "refresh", { size: 14 });
       head.append(
         make3(documentObject, "strong", {}, `Upload Assistant · ${native.tags.length}/${native.tagLimit}`),
-        make3(documentObject, "button", { type: "button", dataset: { action: "refresh" }, title: "仅刷新 Upload Assistant 配置" }, "↻"),
+        refresh,
         make3(documentObject, "button", { type: "button", dataset: { action: "collapse" }, "aria-expanded": String(!collapsed) }, collapsed ? "展开" : "折叠")
       );
       this.root.append(head);
@@ -3477,9 +3545,10 @@ ${summary}
 
   // src/chat/chat-search-ui.js
   var CHAT_SEARCH_CSS = `
-.vgen-nya-chat-search{margin:0;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent);display:flex;flex-direction:column;gap:6px;font:12px/1.4 system-ui,sans-serif;color:inherit;max-width:100%}
+.vgen-nya-chat-search{margin:0;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent);background:color-mix(in srgb,currentColor 3%,transparent);display:flex;flex-direction:column;gap:6px;font:12px/1.4 system-ui,sans-serif;color:inherit;max-width:100%}
 .vgen-nya-chat-search__bar{display:flex;align-items:center;gap:6px}
 .vgen-nya-chat-search input{flex:1;min-width:0;padding:5px 8px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;background:Canvas;color:CanvasText;font:inherit}
+.vgen-nya-chat-search input:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
 .vgen-nya-chat-search button{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 9px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}
 .vgen-nya-chat-search button:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
 .vgen-nya-chat-search button:disabled{opacity:.5;cursor:default}
@@ -3487,6 +3556,7 @@ ${summary}
 .vgen-nya-chat-search__status[data-error="true"]{color:#b42318}
 .vgen-nya-chat-search__results{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:220px;overflow:auto}
 .vgen-nya-chat-search__result{display:block;width:100%;text-align:left;padding:6px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:7px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;cursor:pointer}
+.vgen-nya-chat-search__result:hover{border-color:color-mix(in srgb,currentColor 34%,transparent);background:color-mix(in srgb,currentColor 9%,transparent)}
 .vgen-nya-chat-search__result-snippet{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
 .vgen-nya-chat-search__result-meta{display:block;margin-top:3px;font-size:11px;opacity:.72}
 `;
@@ -3670,13 +3740,15 @@ ${summary}
 .vgen-nya-chat-time{margin-left:auto;white-space:nowrap}
 .str-chat__message-bubble:has(>.vgen-nya-read-marker),.str-chat__message-bubble:has(>.vgen-nya-state-bar){position:relative!important;overflow:visible!important}
 .str-chat__message-bubble:has(>.vgen-nya-state-bar){display:flex!important;flex-direction:column!important;height:auto!important}
-.vgen-nya-state-bar{position:static!important;display:block!important;flex:0 0 2px!important;width:38px!important;height:2px!important;min-height:2px!important;margin-left:auto!important;border-radius:999px;background:#3bdfbc;opacity:.82;pointer-events:none}
-.vgen-nya-state-bar[data-status="unread"]{background:#ff6476}.vgen-nya-state-bar[data-direction="outgoing"]{order:-1;margin-top:1px;margin-bottom:4px}.vgen-nya-state-bar[data-direction="incoming"]{order:2147483647;margin-top:4px;margin-bottom:1px}
-.vgen-nya-read-marker{position:absolute!important;right:-8px;z-index:30;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:transparent;color:#3bdfbc;font:bold 16px/20px system-ui;filter:drop-shadow(0 1px 1px #0007)}
-.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover,.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
-[data-vgen-nya-compact-reactions="true"]{position:static!important;display:flex!important;flex-wrap:wrap!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
-[data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important}
+.vgen-nya-state-bar{position:static!important;display:block!important;flex:0 0 2px!important;width:42px!important;height:2px!important;min-height:2px!important;margin-left:auto!important;border-radius:999px;background:#3bdfbc;opacity:.82;pointer-events:none}
+.vgen-nya-state-bar[data-status="unread"]{background:#ff6476}.vgen-nya-state-bar[data-direction="outgoing"]{order:-1;margin-top:2px;margin-bottom:5px}.vgen-nya-state-bar[data-direction="incoming"]{order:2147483647;margin-top:5px;margin-bottom:2px}
+.vgen-nya-read-marker{position:absolute!important;right:-8px;z-index:30;display:flex!important;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:transparent;color:#3bdfbc;font:bold 15px/20px system-ui;filter:drop-shadow(0 1px 1px #0007)}
+.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover{background:#ff647630;box-shadow:0 0 0 2px #ff647655;transform:scale(1.08)}.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
+[data-vgen-nya-compact-reactions="true"]{--str-chat__stream-emoji-size:12px!important;position:static!important;display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
+[data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important;box-shadow:0 0 0 1px color-mix(in srgb,currentColor 28%,transparent)!important}
+[data-vgen-nya-compact-reactions="true"] :is(svg,img){width:12px!important;height:12px!important;max-width:12px!important;max-height:12px!important}
 .vgen-nya-quick-replies,.vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-preset-chip[aria-pressed="true"]{border-color:#3b82f6;background:#dbeafe;color:#174b8a}.vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}
+[data-vgen-nya-native-latest="true"]{z-index:40!important;scroll-margin-bottom:8px!important}
 ${CHAT_SEARCH_CSS}
 .vgen-nya-search-highlight{outline:2px solid #f59e0b!important;outline-offset:1px;border-radius:8px}
 `;
@@ -3886,13 +3958,14 @@ ${CHAT_SEARCH_CSS}
   var LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
   var MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
   var CLIENTS_CSS = `
-.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;--nya-clients-accent-a:#4f7cff;--nya-clients-accent-b:#3bdfbc;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
-.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{border:0;border-radius:5px;background:var(--nya-clients-control);color:inherit;cursor:pointer}
-.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
-.vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;font-size:10px;pointer-events:none}
+.vgen-nya-clients__accent{height:2px;flex:0 0 auto;background:linear-gradient(90deg,var(--nya-clients-accent-a),var(--nya-clients-accent-b))}
+.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:var(--nya-clients-control);color:inherit;cursor:pointer}.vgen-nya-clients__header button:hover{background:#ffffff26}
+.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider);transition:background-color 120ms ease}.vgen-nya-clients__row:hover{background-color:#ffffff14}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
+.vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar:hover{box-shadow:0 0 0 2px var(--nya-clients-accent-b)}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;box-shadow:0 0 0 1px #a1b5b8;pointer-events:none}.vgen-nya-clients__chat-badge svg{width:12px;height:12px}
 .vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;margin-left:10px;color:inherit;text-decoration:none}.vgen-nya-clients__primary{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{opacity:.7;font-size:10px}.vgen-nya-clients__notice{margin-left:5px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700}.vgen-nya-clients__empty{padding:10px;opacity:.75}
-@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
+@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__header button:hover{background:#17393f1f}.vgen-nya-clients__row:hover{background-color:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
 `;
   var latestDate = (items, fields) => (items || []).reduce((latest, item) => {
     const value = fields.map((field) => item?.[field]).find(Boolean);
@@ -3940,7 +4013,7 @@ ${CHAT_SEARCH_CSS}
       this.style = this.documentObject.createElement?.("style") || null;
       if (this.style) {
         this.style.dataset.vgenNyaUi = "frequent-clients-style";
-        this.style.textContent = CLIENTS_CSS;
+        this.style.textContent = UI_TOKENS_CSS + CLIENTS_CSS;
         (this.documentObject.head || this.documentObject.body)?.append(this.style);
       }
       this.unsubscribe = this.repository.subscribe(({ domain }) => {
@@ -4039,13 +4112,18 @@ ${CHAT_SEARCH_CSS}
       this.panel.dataset.collapsed = String(clientsSettings.collapsed);
       this.panel.style.cssText = `--vgen-nya-clients-min-height:${clientsSettings.minHeight}px;--vgen-nya-clients-row-height:${clientsSettings.rowHeight}px`;
       this.panel.replaceChildren();
+      const accent = make6(this.documentObject, "div", "vgen-nya-clients__accent");
       const header = make6(this.documentObject, "header", "vgen-nya-clients__header");
+      const refresh = this.#button("refresh", "", "刷新资料");
+      setButtonIcon(refresh, "refresh", { size: 13 });
+      const collapse = this.#button("collapse", "", clientsSettings.collapsed ? "展开" : "折叠");
+      setButtonIcon(collapse, clientsSettings.collapsed ? "chevronDown" : "chevronUp", { size: 13 });
       header.append(
         make6(this.documentObject, "strong", "", "常用访问"),
-        this.#button("refresh", "↻", "刷新资料"),
-        this.#button("collapse", clientsSettings.collapsed ? "＋" : "－", clientsSettings.collapsed ? "展开" : "折叠")
+        refresh,
+        collapse
       );
-      this.panel.append(header);
+      this.panel.append(accent, header);
       const list = make6(this.documentObject, "div", "vgen-nya-clients__list");
       list.hidden = clientsSettings.collapsed;
       if (!clients.length) list.append(make6(this.documentObject, "p", "vgen-nya-clients__empty", "在设置 → 常用访问中添加客户"));
@@ -4071,7 +4149,8 @@ ${CHAT_SEARCH_CSS}
       const avatar = make6(this.documentObject, "img");
       avatar.alt = "";
       avatar.src = client.avatarURL || "";
-      const badge = make6(this.documentObject, "span", "vgen-nya-clients__chat-badge", "💬");
+      const badge = make6(this.documentObject, "span", "vgen-nya-clients__chat-badge");
+      badge.innerHTML = iconSvg("chat", 12);
       badge.setAttribute("aria-hidden", "true");
       quick.append(avatar, badge);
       quick.addEventListener("click", (event) => {
@@ -4249,6 +4328,11 @@ ${CHAT_SEARCH_CSS}
     if (text) node.textContent = text;
     return node;
   }
+  function reorderButton3(documentObject, action, label, index, disabled) {
+    const button = make7(documentObject, "button", { type: "button", disabled, dataset: { action, index } });
+    setButtonIcon(button, action === "up" ? "arrowUp" : "arrowDown", { label });
+    return button;
+  }
   function check(documentObject, label, checked, setting) {
     const row = make7(documentObject, "label", { className: "vgen-nya-settings__check" });
     row.append(make7(documentObject, "input", { type: "checkbox", checked, dataset: { setting } }), documentObject.createTextNode(` ${label}`));
@@ -4306,8 +4390,8 @@ ${CHAT_SEARCH_CSS}
           const note = make7(documentObject, "input", { value: client.note, placeholder: `@${client.username}`, dataset: { role: "note", id: client.id } });
           row.append(
             note,
-            make7(documentObject, "button", { type: "button", disabled: index === 0, dataset: { action: "up", index } }, "↑"),
-            make7(documentObject, "button", { type: "button", disabled: index === clients.length - 1, dataset: { action: "down", index } }, "↓"),
+            reorderButton3(documentObject, "up", "上移", index, index === 0),
+            reorderButton3(documentObject, "down", "下移", index, index === clients.length - 1),
             make7(documentObject, "button", { type: "button", dataset: { action: "delete", id: client.id } }, "删除")
           );
           body.append(row);

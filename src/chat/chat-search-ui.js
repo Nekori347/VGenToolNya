@@ -3,9 +3,10 @@ import { ChatSearchCache, ChatSearchEngine, SEARCH_STATES, makeSnippet } from '.
 import { ChatSearchLocator } from './chat-search-locator.js';
 
 export const CHAT_SEARCH_CSS = `
-.vgen-nya-chat-search{margin:0;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent);display:flex;flex-direction:column;gap:6px;font:12px/1.4 system-ui,sans-serif;color:inherit;max-width:100%}
+.vgen-nya-chat-search{margin:0;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent);background:color-mix(in srgb,currentColor 3%,transparent);display:flex;flex-direction:column;gap:6px;font:12px/1.4 system-ui,sans-serif;color:inherit;max-width:100%}
 .vgen-nya-chat-search__bar{display:flex;align-items:center;gap:6px}
 .vgen-nya-chat-search input{flex:1;min-width:0;padding:5px 8px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;background:Canvas;color:CanvasText;font:inherit}
+.vgen-nya-chat-search input:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
 .vgen-nya-chat-search button{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 9px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}
 .vgen-nya-chat-search button:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
 .vgen-nya-chat-search button:disabled{opacity:.5;cursor:default}
@@ -13,6 +14,7 @@ export const CHAT_SEARCH_CSS = `
 .vgen-nya-chat-search__status[data-error="true"]{color:#b42318}
 .vgen-nya-chat-search__results{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:220px;overflow:auto}
 .vgen-nya-chat-search__result{display:block;width:100%;text-align:left;padding:6px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:7px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;cursor:pointer}
+.vgen-nya-chat-search__result:hover{border-color:color-mix(in srgb,currentColor 34%,transparent);background:color-mix(in srgb,currentColor 9%,transparent)}
 .vgen-nya-chat-search__result-snippet{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
 .vgen-nya-chat-search__result-meta{display:block;margin-top:3px;font-size:11px;opacity:.72}
 `;

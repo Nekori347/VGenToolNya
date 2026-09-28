@@ -7,6 +7,7 @@ const DOMAIN_LABELS = Object.freeze({
 });
 import { TEXT_PRESET_CONTEXTS } from '../presets/context-registry.js';
 import { renderTextPresetManager } from './text-preset-settings.js';
+import { setButtonIcon } from '../ui/icons.js';
 
 function make(documentObject, tag, attributes = {}, text = '') {
     const node = documentObject.createElement(tag);
@@ -18,6 +19,12 @@ function make(documentObject, tag, attributes = {}, text = '') {
     }
     if (text) node.textContent = text;
     return node;
+}
+
+function reorderButton(documentObject, action, index, disabled) {
+    const button = make(documentObject, 'button', { type: 'button', dataset: { action, index }, disabled });
+    setButtonIcon(button, action === 'up' ? 'arrowUp' : 'arrowDown', { label: action === 'up' ? '上移' : '下移' });
+    return button;
 }
 
 function renderPresetManager(repository, domain) {
@@ -32,8 +39,8 @@ function renderPresetManager(repository, domain) {
                 const row = make(documentObject, 'div', { className: 'vgen-nya-settings__preset-row' });
                 row.append(
                     make(documentObject, 'span', {}, preset.name || preset.tag || `未命名 ${index + 1}`),
-                    make(documentObject, 'button', { type: 'button', dataset: { action: 'up', index }, disabled: index === 0 }, '↑'),
-                    make(documentObject, 'button', { type: 'button', dataset: { action: 'down', index }, disabled: index === data.length - 1 }, '↓'),
+                    reorderButton(documentObject, 'up', index, index === 0),
+                    reorderButton(documentObject, 'down', index, index === data.length - 1),
                     make(documentObject, 'button', { type: 'button', dataset: { action: 'delete', index } }, '删除'),
                 );
                 body.append(row);

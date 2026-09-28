@@ -1,14 +1,18 @@
+import { iconSvg, setButtonIcon } from '../ui/icons.js';
+import { UI_TOKENS_CSS } from '../ui/tokens.js';
+
 const PROFILE_CACHE_MS = 6 * 60 * 60 * 1000;
 const LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
 const MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
 const CLIENTS_CSS = `
-.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;--nya-clients-accent-a:#4f7cff;--nya-clients-accent-b:#3bdfbc;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
-.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{border:0;border-radius:5px;background:var(--nya-clients-control);color:inherit;cursor:pointer}
-.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
-.vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;font-size:10px;pointer-events:none}
+.vgen-nya-clients__accent{height:2px;flex:0 0 auto;background:linear-gradient(90deg,var(--nya-clients-accent-a),var(--nya-clients-accent-b))}
+.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:var(--nya-clients-control);color:inherit;cursor:pointer}.vgen-nya-clients__header button:hover{background:#ffffff26}
+.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider);transition:background-color 120ms ease}.vgen-nya-clients__row:hover{background-color:#ffffff14}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
+.vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar:hover{box-shadow:0 0 0 2px var(--nya-clients-accent-b)}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;box-shadow:0 0 0 1px #a1b5b8;pointer-events:none}.vgen-nya-clients__chat-badge svg{width:12px;height:12px}
 .vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;margin-left:10px;color:inherit;text-decoration:none}.vgen-nya-clients__primary{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{opacity:.7;font-size:10px}.vgen-nya-clients__notice{margin-left:5px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700}.vgen-nya-clients__empty{padding:10px;opacity:.75}
-@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
+@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__header button:hover{background:#17393f1f}.vgen-nya-clients__row:hover{background-color:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
 `;
 
 const latestDate = (items, fields) => (items || []).reduce((latest, item) => {
@@ -61,7 +65,7 @@ export class FrequentClientsRuntime {
         this.style = this.documentObject.createElement?.('style') || null;
         if (this.style) {
             this.style.dataset.vgenNyaUi = 'frequent-clients-style';
-            this.style.textContent = CLIENTS_CSS;
+            this.style.textContent = UI_TOKENS_CSS + CLIENTS_CSS;
             (this.documentObject.head || this.documentObject.body)?.append(this.style);
         }
         this.unsubscribe = this.repository.subscribe(({ domain }) => {
@@ -166,13 +170,18 @@ export class FrequentClientsRuntime {
         this.panel.dataset.collapsed = String(clientsSettings.collapsed);
         this.panel.style.cssText = `--vgen-nya-clients-min-height:${clientsSettings.minHeight}px;--vgen-nya-clients-row-height:${clientsSettings.rowHeight}px`;
         this.panel.replaceChildren();
+        const accent = make(this.documentObject, 'div', 'vgen-nya-clients__accent');
         const header = make(this.documentObject, 'header', 'vgen-nya-clients__header');
+        const refresh = this.#button('refresh', '', '刷新资料');
+        setButtonIcon(refresh, 'refresh', { size: 13 });
+        const collapse = this.#button('collapse', '', clientsSettings.collapsed ? '展开' : '折叠');
+        setButtonIcon(collapse, clientsSettings.collapsed ? 'chevronDown' : 'chevronUp', { size: 13 });
         header.append(
             make(this.documentObject, 'strong', '', '常用访问'),
-            this.#button('refresh', '↻', '刷新资料'),
-            this.#button('collapse', clientsSettings.collapsed ? '＋' : '－', clientsSettings.collapsed ? '展开' : '折叠'),
+            refresh,
+            collapse,
         );
-        this.panel.append(header);
+        this.panel.append(accent, header);
         const list = make(this.documentObject, 'div', 'vgen-nya-clients__list');
         list.hidden = clientsSettings.collapsed;
         if (!clients.length) list.append(make(this.documentObject, 'p', 'vgen-nya-clients__empty', '在设置 → 常用访问中添加客户'));
@@ -200,7 +209,8 @@ export class FrequentClientsRuntime {
         const avatar = make(this.documentObject, 'img');
         avatar.alt = '';
         avatar.src = client.avatarURL || '';
-        const badge = make(this.documentObject, 'span', 'vgen-nya-clients__chat-badge', '💬');
+        const badge = make(this.documentObject, 'span', 'vgen-nya-clients__chat-badge');
+        badge.innerHTML = iconSvg('chat', 12);
         badge.setAttribute('aria-hidden', 'true');
         quick.append(avatar, badge);
         quick.addEventListener('click', (event) => {

@@ -1,8 +1,10 @@
 import { VGenUploadAdapter } from './vgen-upload-adapter.js';
 import { TEXT_PRESET_CONTEXTS } from '../presets/context-registry.js';
+import { setButtonIcon } from '../ui/icons.js';
+import { UI_TOKENS_CSS } from '../ui/tokens.js';
 
 const CSS = `
-.vgen-nya-upload{margin:10px 0;padding:10px;border:1px solid #cfd8e3;border-radius:10px;background:#f8fbff;color:#253247;font:13px/1.4 system-ui,sans-serif}.vgen-nya-upload *{box-sizing:border-box}.vgen-nya-upload__head{display:flex;align-items:center;gap:8px}.vgen-nya-upload__head strong{flex:1}.vgen-nya-upload button,.vgen-nya-upload select{font:inherit}.vgen-nya-upload button{cursor:pointer}.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:9px}.vgen-nya-upload__row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-upload__row>label{min-width:72px;font-weight:600}.vgen-nya-upload__row select{min-width:160px;max-width:360px}.vgen-nya-upload__groups{display:grid;gap:6px}.vgen-nya-upload__group{border:1px solid #d9e1ea;border-radius:8px;overflow:hidden}.vgen-nya-upload__group summary{padding:6px 8px;cursor:pointer}.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:5px;padding:7px}.vgen-nya-upload__tag[aria-pressed=true]{background:#1e78ca;color:#fff}.vgen-nya-upload__status{min-height:1.3em;color:#55657a}.vgen-nya-upload[data-theme=dark]{background:#1f2935;color:#eef5ff;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] .vgen-nya-upload__group{border-color:#4b5b6d}
+.vgen-nya-upload{margin:10px 0;padding:10px;border:1px solid #cfd8e3;border-radius:10px;background:#f8fbff;color:#253247;font:13px/1.4 system-ui,sans-serif}.vgen-nya-upload *{box-sizing:border-box}.vgen-nya-upload__head{display:flex;align-items:center;gap:8px}.vgen-nya-upload__head strong{flex:1}.vgen-nya-upload button,.vgen-nya-upload select{font:inherit}.vgen-nya-upload button{cursor:pointer;border:1px solid #d5dee8;border-radius:7px;padding:4px 9px;background:#f1f5fa;color:inherit}.vgen-nya-upload button:hover{background:#e7eef6}.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:9px}.vgen-nya-upload__row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-upload__row>label{min-width:72px;font-weight:600}.vgen-nya-upload__row select{min-width:160px;max-width:360px}.vgen-nya-upload__groups{display:grid;gap:6px}.vgen-nya-upload__group{border:1px solid #d9e1ea;border-radius:8px;overflow:hidden}.vgen-nya-upload__group summary{padding:6px 8px;cursor:pointer}.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:5px;padding:7px}.vgen-nya-upload__tag[aria-pressed=true]{background:var(--vgn-accent,#1e78ca);border-color:var(--vgn-accent,#1e78ca);color:#fff}.vgen-nya-upload__status{min-height:1.3em;color:#55657a}.vgen-nya-upload[data-theme=dark]{background:#1f2935;color:#eef5ff;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] .vgen-nya-upload__group{border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] button{background:#2a3543;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] button:hover{background:#334052}
 `;
 
 function make(documentObject, tag, attributes = {}, text = '') {
@@ -52,7 +54,7 @@ export class UploadAssistantSession {
         this.root.addEventListener('click', (event) => this.onClick(event));
         this.root.addEventListener('change', (event) => this.onChange(event));
         const style = make(documentObject, 'style');
-        style.textContent = CSS;
+        style.textContent = UI_TOKENS_CSS + CSS;
         this.root.append(style);
         const anchor = this.adapter.findTagInput?.()?.parentElement;
         (anchor?.parentElement || this.surface).append(this.root);
@@ -90,9 +92,11 @@ export class UploadAssistantSession {
         this.root.dataset.theme = snapshot.uiSettings.theme;
         this.root.replaceChildren(this.root.querySelector('style'));
         const head = make(documentObject, 'div', { className: 'vgen-nya-upload__head' });
+        const refresh = make(documentObject, 'button', { type: 'button', dataset: { action: 'refresh' }, title: '仅刷新 Upload Assistant 配置' });
+        setButtonIcon(refresh, 'refresh', { size: 14 });
         head.append(
             make(documentObject, 'strong', {}, `Upload Assistant · ${native.tags.length}/${native.tagLimit}`),
-            make(documentObject, 'button', { type: 'button', dataset: { action: 'refresh' }, title: '仅刷新 Upload Assistant 配置' }, '↻'),
+            refresh,
             make(documentObject, 'button', { type: 'button', dataset: { action: 'collapse' }, 'aria-expanded': String(!collapsed) }, collapsed ? '展开' : '折叠'),
         );
         this.root.append(head);
