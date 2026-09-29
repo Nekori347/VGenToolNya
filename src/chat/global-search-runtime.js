@@ -6,6 +6,7 @@ import { streamClientFromDocument, streamSelfId, StreamChatAdapter } from './str
 import { iconSvg } from '../ui/icons.js';
 
 const NATIVE_SEARCH_SELECTOR = 'input[placeholder*="search" i], input[aria-label*="search" i], input[placeholder*="搜索"], input[aria-label*="搜索"]';
+const NATIVE_DM_SEARCH_SELECTOR = 'input[placeholder*="direct messages" i]';
 const LIST_SELECTOR = '.str-chat__channel-list, [data-testid*="channel-list"], [class*="ChannelList__Container"]';
 
 const GLOBAL_SEARCH_CSS = `
@@ -13,6 +14,7 @@ const GLOBAL_SEARCH_CSS = `
 .vgen-nya-search-enhanced:hover{border-color:color-mix(in srgb,#20cda7 60%,transparent)!important}
 .vgen-nya-search-enhanced:focus,.vgen-nya-search-enhanced:focus-visible{border-color:#4f7cff!important;outline:none!important;box-shadow:0 0 0 2px color-mix(in srgb,#4f7cff 28%,transparent)!important}
 .vgen-nya-search-enhanced::placeholder{color:color-mix(in srgb,currentColor 60%,transparent)}
+.vgen-nya-search-enhanced .prefix svg{fill:#4f7cff!important}
 .vgen-nya-global-results{list-style:none;margin:0;padding:6px 8px;display:grid;gap:4px;max-height:340px;overflow:auto;font:12px/1.4 system-ui,sans-serif;color:inherit}
 .vgen-nya-global-results:empty{display:none}
 .vgen-nya-global-results__result{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;cursor:pointer}
@@ -48,6 +50,7 @@ export class GlobalSearchRuntime {
         this.style = null;
         this.observer = null;
         this.input = null;
+        this.barHost = null;
         this.results = null;
         this.listHost = null;
         this.debounceTimer = null;
@@ -80,6 +83,8 @@ export class GlobalSearchRuntime {
     }
 
     #findInput(root) {
+        const direct = root?.querySelector?.(NATIVE_DM_SEARCH_SELECTOR);
+        if (direct) return direct;
         for (const input of root?.querySelectorAll?.(NATIVE_SEARCH_SELECTOR) || []) {
             if (typeof input.focus === 'function' || input.isConnected !== false) return input;
         }
@@ -103,7 +108,9 @@ export class GlobalSearchRuntime {
         this.#release();
         this.input = input;
         this.listHost = this.#findListHost(root) || this.#findListHost(this.documentObject);
+        this.barHost = this.input.closest?.('.searchBar') || this.input.parentElement?.parentElement || this.input.parentElement;
         this.input.classList.add('vgen-nya-search-enhanced');
+        this.barHost?.classList?.add('vgen-nya-search-enhanced');
         this.input.setAttribute('placeholder', '搜索用户或聊天记录…');
         this.input.setAttribute('aria-label', '搜索用户或聊天记录');
         this.input.title = '已增强：可搜索聊天记录';
@@ -112,20 +119,23 @@ export class GlobalSearchRuntime {
         this.results = make(this.documentObject, 'ul', 'vgen-nya-global-results');
         this.results.dataset.vgenNyaUi = 'global-search-results';
         this.results.translate = false;
-        if (typeof this.input.parentElement?.insertBefore === 'function') {
-            this.input.parentElement.insertBefore(this.results, this.input.nextSibling || null);
+        const insertAfter = this.barHost || this.input.parentElement;
+        if (typeof insertAfter?.parentElement?.insertBefore === 'function') {
+            insertAfter.parentElement.insertBefore(this.results, insertAfter.nextSibling || null);
         } else {
-            this.input.parentElement?.append?.(this.results);
+            insertAfter?.parentElement?.append?.(this.results);
         }
     }
 
     #release() {
         this.input?.classList.remove('vgen-nya-search-enhanced');
+        this.barHost?.classList?.remove('vgen-nya-search-enhanced');
         this.input?.removeEventListener('input', this.onInput);
         this.input?.removeEventListener('keydown', this.onKeydown);
         this.results?.remove();
         this.results = null;
         this.input = null;
+        this.barHost = null;
         this.listHost = null;
     }
 

@@ -281,7 +281,15 @@ export class StreamChatAdapter {
                 if (marker.dataset.manual === 'true') manualRead();
             });
             statusRow.append(bar, marker);
-            group.append(statusRow);
+            // Insert right below the bubble so the native reactions host and
+            // our meta row stay after the status line.
+            if (typeof bubble.insertAdjacentElement === 'function') {
+                bubble.insertAdjacentElement('afterend', statusRow);
+            } else if (bubble.parentElement?.insertBefore && bubble.nextSibling) {
+                bubble.parentElement.insertBefore(statusRow, bubble.nextSibling);
+            } else {
+                group.append(statusRow);
+            }
         }
         if (statusRow && settings.showStatusBar !== false && hasStatus) {
             statusRow.dataset.direction = state.direction;

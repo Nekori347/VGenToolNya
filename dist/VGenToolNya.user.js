@@ -1645,6 +1645,9 @@ ${summary}
   // src/upload/vgen-upload-adapter.js
   var MODAL_SELECTOR = '.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]';
   var TAG_INPUT_SELECTOR = 'input[placeholder*="tag" i], input[placeholder*="标签"], input[aria-label*="tag" i], input[aria-label*="标签"]';
+  var TITLE_INPUT_SELECTOR = 'input[placeholder*="showcase" i], input[aria-label*="title" i], input[placeholder*="标题"]';
+  var DESCRIPTION_EDITOR_SELECTOR = '.descriptionEditor, [data-slate-editor="true"], [data-slate-editor], [contenteditable="true"]';
+  var DISCOVERY_SECTION_SELECTOR = '[class*="ShowcaseOptionsForm"], [class*="showcaseOptionsForm"]';
   function ownReactValue(element2, prefix) {
     if (!element2) return null;
     const key = Object.getOwnPropertyNames(element2).find((name) => name.startsWith(prefix));
@@ -1837,10 +1840,30 @@ ${summary}
       return Boolean(this.surface?.isConnected && !this.surface.hidden && this.surface.getAttribute?.("aria-hidden") !== "true");
     }
     findTagInput() {
-      for (const input of this.surface.querySelectorAll(TAG_INPUT_SELECTOR)) {
+      const candidates = [
+        ...this.surface.querySelectorAll(TAG_INPUT_SELECTOR) || [],
+        ...this.surface.querySelectorAll('input:not([type]), input[type="text"], input[type="search"]') || []
+      ];
+      for (const input of new Set(candidates)) {
         if (tagBridgeFromInput(input)) return input;
       }
       return null;
+    }
+    // DOM anchors for the per-region preset strips (verified against the live
+    // ShowcaseModal: title = input[placeholder="New Showcase"], search tags =
+    // input[placeholder="Add tags..."], discovery = ShowcaseOptionsForm radios).
+    findTitleInput() {
+      for (const input of this.surface.querySelectorAll(TITLE_INPUT_SELECTOR)) return input;
+      return null;
+    }
+    findDescriptionEditor() {
+      for (const editor of deepQueryAll(this.surface, DESCRIPTION_EDITOR_SELECTOR)) {
+        if (walkAncestorProps(editor, (props) => props?.onEditCallback || props?.onValueChange || (typeof props?.onChange === "function" ? props.onChange : null))) return editor;
+      }
+      return null;
+    }
+    findDiscoverySection() {
+      return this.surface.querySelector(DISCOVERY_SECTION_SELECTOR) || null;
     }
     bridge() {
       const input = this.findTagInput();
@@ -1993,6 +2016,16 @@ ${summary}
     if (text) node.textContent = text;
     return node;
   }
+  function insertAfter(reference, node) {
+    const parent = reference?.parentElement;
+    if (parent?.insertBefore) parent.insertBefore(node, reference.nextSibling || null);
+    else parent?.append?.(node);
+  }
+  function insertBefore(reference, node) {
+    const parent = reference?.parentElement;
+    if (parent?.insertBefore) parent.insertBefore(node, reference);
+    else parent?.append?.(node);
+  }
   function presetValue(preset, kind) {
     if (kind === "title") return preset?.value ?? preset?.title ?? "";
     if (kind === "description") return preset?.value ?? preset?.description ?? "";
@@ -2008,27 +2041,17 @@ ${summary}
       this.adapter = adapter;
       this.MutationObserverClass = MutationObserverClass;
       this.root = null;
+      this.roots = [];
       this.observer = null;
       this.unsubscribe = null;
       this.renderQueued = false;
       this.onInactive = onInactive;
       this.textPresetEngine = textPresetEngine;
+      this.mounted = false;
     }
     mount() {
-      if (this.root?.isConnected) return false;
-      const documentObject = this.surface.ownerDocument;
-      this.root = make3(documentObject, "section", {
-        className: "vgen-nya-upload notranslate",
-        dataset: { vgenNyaUi: "upload-assistant" },
-        translate: false
-      });
-      this.root.addEventListener("click", (event) => this.onClick(event));
-      this.root.addEventListener("change", (event) => this.onChange(event));
-      const style = make3(documentObject, "style");
-      style.textContent = UI_TOKENS_CSS + CSS;
-      this.root.append(style);
-      const anchor = this.adapter.findTagInput?.()?.parentElement;
-      (anchor?.parentElement || this.surface).append(this.root);
+      if (this.mounted) return false;
+      this.mounted = true;
       this.unsubscribe = this.repository.subscribe(() => this.render());
       if (this.MutationObserverClass) {
         this.observer = new this.MutationObserverClass((records) => {
@@ -2036,7 +2059,7 @@ ${summary}
             this.onInactive?.();
             return;
           }
-          if (records.some((record) => !this.root?.contains(record.target))) this.queueRender();
+          if (records.some((record) => !this.roots.some((root) => root?.contains(record.target)))) this.queueRender();
         });
         this.observer.observe(this.surface, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden", "aria-hidden", "data-state"] });
       }
@@ -2044,22 +2067,53 @@ ${summary}
       return true;
     }
     queueRender() {
-      if (this.renderQueued || !this.root?.isConnected) return;
+      if (this.renderQueued || !this.mounted) return;
       this.renderQueued = true;
       queueMicrotask(() => {
         this.renderQueued = false;
-        if (this.root?.isConnected) this.render();
+        if (this.mounted) this.render();
       });
     }
+    #makeRoot(documentObject) {
+      const root = make3(documentObject, "section", {
+        className: "vgen-nya-upload notranslate",
+        translate: false
+      });
+      root.addEventListener("click", (event) => this.onClick(event));
+      root.addEventListener("change", (event) => this.onChange(event));
+      return root;
+    }
+    // Native anchors (verified live): title input, description editor,
+    // discovery options form, search tag input.
+    #anchors() {
+      const isNode = (node) => Boolean(node && (node.parentElement != null || node.ownerDocument));
+      const title = this.adapter.findTitleInput?.();
+      const desc = this.adapter.findDescriptionEditor?.();
+      const discovery = this.adapter.findDiscoverySection?.();
+      const tags = this.adapter.findTagInput?.();
+      return {
+        titleRef: isNode(title) ? title.closest?.('[class*="InputField__Container"]') || title.parentElement?.parentElement || title.parentElement || title : null,
+        descRef: isNode(desc) ? desc : null,
+        discoveryRef: isNode(discovery) ? discovery : null,
+        tagsRef: isNode(tags) ? tags.closest?.('[class*="TagSearch"]') || tags.parentElement?.parentElement?.parentElement || tags.parentElement || tags : null
+      };
+    }
     render() {
-      if (!this.root) return;
-      const documentObject = this.root.ownerDocument;
+      if (!this.mounted) return;
+      const documentObject = this.surface.ownerDocument;
+      for (const root of this.roots) root.remove();
+      this.roots = [];
       const snapshot = this.repository.snapshot || this.repository.read();
       const native = this.adapter.read();
       const selected = new Set(native.tags.map(keyOfTag));
       const collapsed = snapshot.uploadSettings.collapsed;
+      const { titleRef, descRef, discoveryRef, tagsRef } = this.#anchors();
+      this.root = this.#makeRoot(documentObject);
+      this.root.dataset.vgenNyaUi = "upload-assistant";
       this.root.dataset.theme = snapshot.uiSettings.theme;
-      this.root.replaceChildren(this.root.querySelector("style"));
+      const style = make3(documentObject, "style");
+      style.textContent = UI_TOKENS_CSS + CSS;
+      this.root.append(style);
       const head = make3(documentObject, "div", { className: "vgen-nya-upload__head" });
       const refresh = make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__icon", dataset: { action: "refresh" }, title: "仅刷新 Upload Assistant 配置" });
       setButtonIcon(refresh, "refresh", { size: 13 });
@@ -2069,16 +2123,40 @@ ${summary}
         make3(documentObject, "button", { type: "button", dataset: { action: "collapse" }, "aria-expanded": String(!collapsed) }, collapsed ? "展开" : "折叠")
       );
       this.root.append(head);
-      if (collapsed) return;
+      if (collapsed) {
+        this.#placeHead();
+        return;
+      }
       const modules = make3(documentObject, "div", { className: "vgen-nya-upload__modules" });
       const settings = snapshot.uploadSettings.modules;
       if (settings.global) modules.append(this.globalStrip(documentObject, snapshot));
-      if (settings.title) modules.append(this.strip(documentObject, "标题", "title", snapshot.titlePresets, native.title));
-      if (settings.description) modules.append(this.strip(documentObject, "描述", "description", snapshot.descriptionPresets, native.description));
-      if (settings.discovery) modules.append(this.strip(documentObject, "发现标签", "discovery", snapshot.discoveryPresets));
-      if (settings.tags) this.#renderTagGroups(documentObject, modules, snapshot, selected);
-      modules.append(make3(documentObject, "div", { className: "vgen-nya-upload__status", dataset: { role: "status" } }));
+      if (settings.title) this.#placeStrip(modules, titleRef, () => this.strip(documentObject, "标题", "title", snapshot.titlePresets, native.title));
+      if (settings.description) this.#placeStrip(modules, descRef, () => this.strip(documentObject, "描述", "description", snapshot.descriptionPresets, native.description));
+      if (settings.discovery) this.#placeStrip(modules, discoveryRef, () => this.strip(documentObject, "发现标签", "discovery", snapshot.discoveryPresets));
+      if (settings.tags) this.#placeStrip(modules, tagsRef, () => this.tagGroups(documentObject, snapshot, selected));
       this.root.append(modules);
+      this.root.append(make3(documentObject, "div", { className: "vgen-nya-upload__status", dataset: { role: "status" } }));
+      this.#placeHead();
+    }
+    #placeHead() {
+      const { titleRef, tagsRef } = this.#anchors();
+      if (titleRef) insertBefore(titleRef, this.root);
+      else if (tagsRef) insertBefore(tagsRef, this.root);
+      else if (typeof this.surface.prepend === "function") this.surface.prepend(this.root);
+      else this.surface.append?.(this.root);
+      this.roots.push(this.root);
+    }
+    // Mounts a strip next to its native region; falls back to the head modules
+    // container when the region is not present.
+    #placeStrip(modules, ref, build) {
+      if (!ref) {
+        modules.append(build());
+        return;
+      }
+      const root = this.#makeRoot(ref.ownerDocument);
+      root.append(build());
+      insertAfter(ref, root);
+      this.roots.push(root);
     }
     globalStrip(documentObject, snapshot) {
       const strip = make3(documentObject, "div", { className: "vgen-nya-upload__strip vgen-nya-upload__strip--global" });
@@ -2115,7 +2193,8 @@ ${summary}
       setButtonIcon(button, "plus", { size: 12, label: "保存当前" });
       return button;
     }
-    #renderTagGroups(documentObject, modules, snapshot, selected) {
+    tagGroups(documentObject, snapshot, selected) {
+      const groups = make3(documentObject, "div", { className: "vgen-nya-upload__groups" });
       for (const [index, group] of snapshot.searchTagGroups.entries()) {
         const tags = Array.isArray(group.tags) ? group.tags : [];
         const count = tags.filter((tag) => selected.has(keyOfTag(tag))).length;
@@ -2149,8 +2228,9 @@ ${summary}
           );
           groupEl.append(list, toolbar);
         }
-        modules.append(groupEl);
+        groups.append(groupEl);
       }
+      return groups;
     }
     #miniGroupAction(documentObject, action, groupId, icon, label) {
       const button = make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__group-mini-action", dataset: { action, groupId }, title: label });
@@ -2160,14 +2240,13 @@ ${summary}
     #tagButton(documentObject, item, selected) {
       const value = typeof item === "string" ? item : item.tag;
       const key = keyOfTag(value);
-      const button = make3(documentObject, "button", {
+      return make3(documentObject, "button", {
         type: "button",
         className: "vgen-nya-upload__tag",
         dataset: { action: "tag", tag: value, state: selected.has(key) ? "selected" : "normal" },
         title: item?.note ? `${value}（${item.note}）` : value,
         "aria-pressed": String(selected.has(key))
       }, item?.note ? `${value}【${item.note}】` : value);
-      return button;
     }
     setStatus(message) {
       const status = this.root?.querySelector('[data-role="status"]');
@@ -2201,7 +2280,7 @@ ${summary}
     }
     async onClick(event) {
       const button = event.target?.closest?.("button[data-action]");
-      if (!button || !this.root.contains(button)) return;
+      if (!button || !this.roots.some((root) => root?.contains(button))) return;
       const snapshot = this.repository.snapshot || this.repository.read();
       if (button.dataset.action === "refresh") {
         this.repository.refresh();
@@ -2255,11 +2334,13 @@ ${summary}
       this.render();
     }
     unmount() {
+      this.mounted = false;
       this.observer?.disconnect();
       this.observer = null;
       this.unsubscribe?.();
       this.unsubscribe = null;
-      this.root?.remove();
+      for (const root of this.roots) root.remove();
+      this.roots = [];
       this.root = null;
     }
   };
@@ -3151,7 +3232,13 @@ ${summary}
           if (marker.dataset.manual === "true") manualRead();
         });
         statusRow.append(bar, marker);
-        group.append(statusRow);
+        if (typeof bubble.insertAdjacentElement === "function") {
+          bubble.insertAdjacentElement("afterend", statusRow);
+        } else if (bubble.parentElement?.insertBefore && bubble.nextSibling) {
+          bubble.parentElement.insertBefore(statusRow, bubble.nextSibling);
+        } else {
+          group.append(statusRow);
+        }
       }
       if (statusRow && settings.showStatusBar !== false && hasStatus) {
         statusRow.dataset.direction = state.direction;
@@ -3789,6 +3876,8 @@ ${summary}
   }
   function defaultSidebarResolver(documentObject, surface) {
     const modal = surface?.closest?.('[class*="ChatModal"], .str-chat, [class*="chatModal"]') || documentObject;
+    const infoPanel = modal.querySelector?.('[class*="ChatModalInfoPanel__Container"]');
+    if (infoPanel) return infoPanel;
     for (const root of modal.querySelectorAll?.('[class*="Client"], [class*="client"], [class*="Detail"], [class*="detail"], [class*="Sidebar"], [class*="sidebar"]') || []) {
       if (root === surface || root.contains?.(surface) || surface?.contains?.(root)) continue;
       if (/client|commission|detail/i.test(String(root.textContent || "").slice(0, 400))) return root;
@@ -4180,12 +4269,14 @@ ${CHAT_SEARCH_CSS}
 
   // src/chat/global-search-runtime.js
   var NATIVE_SEARCH_SELECTOR = 'input[placeholder*="search" i], input[aria-label*="search" i], input[placeholder*="搜索"], input[aria-label*="搜索"]';
+  var NATIVE_DM_SEARCH_SELECTOR = 'input[placeholder*="direct messages" i]';
   var LIST_SELECTOR = '.str-chat__channel-list, [data-testid*="channel-list"], [class*="ChannelList__Container"]';
   var GLOBAL_SEARCH_CSS = `
 .vgen-nya-search-enhanced{border-color:color-mix(in srgb,#4f7cff 48%,transparent)!important}
 .vgen-nya-search-enhanced:hover{border-color:color-mix(in srgb,#20cda7 60%,transparent)!important}
 .vgen-nya-search-enhanced:focus,.vgen-nya-search-enhanced:focus-visible{border-color:#4f7cff!important;outline:none!important;box-shadow:0 0 0 2px color-mix(in srgb,#4f7cff 28%,transparent)!important}
 .vgen-nya-search-enhanced::placeholder{color:color-mix(in srgb,currentColor 60%,transparent)}
+.vgen-nya-search-enhanced .prefix svg{fill:#4f7cff!important}
 .vgen-nya-global-results{list-style:none;margin:0;padding:6px 8px;display:grid;gap:4px;max-height:340px;overflow:auto;font:12px/1.4 system-ui,sans-serif;color:inherit}
 .vgen-nya-global-results:empty{display:none}
 .vgen-nya-global-results__result{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;cursor:pointer}
@@ -4216,6 +4307,7 @@ ${CHAT_SEARCH_CSS}
       this.style = null;
       this.observer = null;
       this.input = null;
+      this.barHost = null;
       this.results = null;
       this.listHost = null;
       this.debounceTimer = null;
@@ -4251,6 +4343,8 @@ ${CHAT_SEARCH_CSS}
       return true;
     }
     #findInput(root) {
+      const direct = root?.querySelector?.(NATIVE_DM_SEARCH_SELECTOR);
+      if (direct) return direct;
       for (const input of root?.querySelectorAll?.(NATIVE_SEARCH_SELECTOR) || []) {
         if (typeof input.focus === "function" || input.isConnected !== false) return input;
       }
@@ -4275,7 +4369,9 @@ ${CHAT_SEARCH_CSS}
       this.#release();
       this.input = input;
       this.listHost = this.#findListHost(root) || this.#findListHost(this.documentObject);
+      this.barHost = this.input.closest?.(".searchBar") || this.input.parentElement?.parentElement || this.input.parentElement;
       this.input.classList.add("vgen-nya-search-enhanced");
+      this.barHost?.classList?.add("vgen-nya-search-enhanced");
       this.input.setAttribute("placeholder", "搜索用户或聊天记录…");
       this.input.setAttribute("aria-label", "搜索用户或聊天记录");
       this.input.title = "已增强：可搜索聊天记录";
@@ -4284,19 +4380,22 @@ ${CHAT_SEARCH_CSS}
       this.results = make6(this.documentObject, "ul", "vgen-nya-global-results");
       this.results.dataset.vgenNyaUi = "global-search-results";
       this.results.translate = false;
-      if (typeof this.input.parentElement?.insertBefore === "function") {
-        this.input.parentElement.insertBefore(this.results, this.input.nextSibling || null);
+      const insertAfter2 = this.barHost || this.input.parentElement;
+      if (typeof insertAfter2?.parentElement?.insertBefore === "function") {
+        insertAfter2.parentElement.insertBefore(this.results, insertAfter2.nextSibling || null);
       } else {
-        this.input.parentElement?.append?.(this.results);
+        insertAfter2?.parentElement?.append?.(this.results);
       }
     }
     #release() {
       this.input?.classList.remove("vgen-nya-search-enhanced");
+      this.barHost?.classList?.remove("vgen-nya-search-enhanced");
       this.input?.removeEventListener("input", this.onInput);
       this.input?.removeEventListener("keydown", this.onKeydown);
       this.results?.remove();
       this.results = null;
       this.input = null;
+      this.barHost = null;
       this.listHost = null;
     }
     #schedule() {
@@ -5366,7 +5465,7 @@ ${CHAT_SEARCH_CSS}
   // src/order/order-text-presets.js
   var NOTE_CONTEXT = TEXT_PRESET_CONTEXTS.privateNote;
   var DELIVERY_CONTEXT = TEXT_PRESET_CONTEXTS.finalDelivery;
-  var NOTE_SELECTOR = 'textarea[aria-label="Note to self"], input[aria-label="Note to self"], textarea[placeholder="Note to self"], input[placeholder="Note to self"]';
+  var NOTE_SELECTOR = 'textarea[placeholder*="Note to self" i], input[placeholder*="Note to self" i], textarea[aria-label*="Note to self" i], input[aria-label*="Note to self" i]';
   var DELIVERY_SELECTOR = 'textarea[aria-label*="delivery" i], input[aria-label*="delivery" i], textarea[placeholder*="delivery" i], input[placeholder*="delivery" i], textarea[aria-label*="交付"], input[aria-label*="交付"]';
   var ORDER_PRESET_CSS = ".vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-order-presets .vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-order-presets .vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-order-presets .vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}";
   function inputsMatching(root, selector) {
@@ -6276,9 +6375,8 @@ ${CHAT_SEARCH_CSS}
       this.mounted = true;
       const documentObject = this.panel.ownerDocument;
       this.host = this.identity?.mountTarget || this.panel;
-      if (this.host && !this.host.dataset?.vgenNyaClientHost) {
-        const previous = this.host.style?.position || "";
-        this.host.dataset = { ...this.host.dataset || {}, vgenNyaClientHost: previous };
+      if (this.host && this.host.dataset?.vgenNyaClientHost === void 0) {
+        this.host.dataset.vgenNyaClientHost = this.host.style?.position || "";
         this.host.style.position = "relative";
       }
       if (this.settings.copyButtons) this.#mountActions(documentObject);

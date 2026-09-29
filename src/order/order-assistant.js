@@ -117,9 +117,8 @@ export class OrderAssistantSession {
         this.mounted = true;
         const documentObject = this.panel.ownerDocument;
         this.host = this.identity?.mountTarget || this.panel;
-        if (this.host && !this.host.dataset?.vgenNyaClientHost) {
-            const previous = this.host.style?.position || '';
-            this.host.dataset = { ...(this.host.dataset || {}), vgenNyaClientHost: previous };
+        if (this.host && this.host.dataset?.vgenNyaClientHost === undefined) {
+            this.host.dataset.vgenNyaClientHost = this.host.style?.position || '';
             this.host.style.position = 'relative';
         }
         if (this.settings.copyButtons) this.#mountActions(documentObject);

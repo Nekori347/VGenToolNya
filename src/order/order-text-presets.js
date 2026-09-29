@@ -3,7 +3,7 @@ import { NativeTextTarget } from '../presets/native-text-target.js';
 
 const NOTE_CONTEXT = TEXT_PRESET_CONTEXTS.privateNote;
 const DELIVERY_CONTEXT = TEXT_PRESET_CONTEXTS.finalDelivery;
-const NOTE_SELECTOR = 'textarea[aria-label="Note to self"], input[aria-label="Note to self"], textarea[placeholder="Note to self"], input[placeholder="Note to self"]';
+const NOTE_SELECTOR = 'textarea[placeholder*="Note to self" i], input[placeholder*="Note to self" i], textarea[aria-label*="Note to self" i], input[aria-label*="Note to self" i]';
 const DELIVERY_SELECTOR = 'textarea[aria-label*="delivery" i], input[aria-label*="delivery" i], textarea[placeholder*="delivery" i], input[placeholder*="delivery" i], textarea[aria-label*="交付"], input[aria-label*="交付"]';
 const ORDER_PRESET_CSS = '.vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-order-presets .vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-order-presets .vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-order-presets .vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}';
 

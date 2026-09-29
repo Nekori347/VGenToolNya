@@ -1,5 +1,8 @@
 const MODAL_SELECTOR = '.ReactModal__Content[role="dialog"], .ReactModal__Content, [role="dialog"][aria-modal="true"], [role="dialog"]';
 const TAG_INPUT_SELECTOR = 'input[placeholder*="tag" i], input[placeholder*="标签"], input[aria-label*="tag" i], input[aria-label*="标签"]';
+const TITLE_INPUT_SELECTOR = 'input[placeholder*="showcase" i], input[aria-label*="title" i], input[placeholder*="标题"]';
+const DESCRIPTION_EDITOR_SELECTOR = '.descriptionEditor, [data-slate-editor="true"], [data-slate-editor], [contenteditable="true"]';
+const DISCOVERY_SECTION_SELECTOR = '[class*="ShowcaseOptionsForm"], [class*="showcaseOptionsForm"]';
 
 function ownReactValue(element, prefix) {
     if (!element) return null;
@@ -212,10 +215,33 @@ export class VGenUploadAdapter {
     }
 
     findTagInput() {
-        for (const input of this.surface.querySelectorAll(TAG_INPUT_SELECTOR)) {
+        const candidates = [
+            ...(this.surface.querySelectorAll(TAG_INPUT_SELECTOR) || []),
+            ...(this.surface.querySelectorAll('input:not([type]), input[type="text"], input[type="search"]') || []),
+        ];
+        for (const input of new Set(candidates)) {
             if (tagBridgeFromInput(input)) return input;
         }
         return null;
+    }
+
+    // DOM anchors for the per-region preset strips (verified against the live
+    // ShowcaseModal: title = input[placeholder="New Showcase"], search tags =
+    // input[placeholder="Add tags..."], discovery = ShowcaseOptionsForm radios).
+    findTitleInput() {
+        for (const input of this.surface.querySelectorAll(TITLE_INPUT_SELECTOR)) return input;
+        return null;
+    }
+
+    findDescriptionEditor() {
+        for (const editor of deepQueryAll(this.surface, DESCRIPTION_EDITOR_SELECTOR)) {
+            if (walkAncestorProps(editor, (props) => props?.onEditCallback || props?.onValueChange || (typeof props?.onChange === 'function' ? props.onChange : null))) return editor;
+        }
+        return null;
+    }
+
+    findDiscoverySection() {
+        return this.surface.querySelector(DISCOVERY_SECTION_SELECTOR) || null;
     }
 
     bridge() {

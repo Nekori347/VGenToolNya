@@ -96,6 +96,9 @@ export async function searchAllChannels(query, channels, options = {}) {
 
 function defaultSidebarResolver(documentObject, surface) {
     const modal = surface?.closest?.('[class*="ChatModal"], .str-chat, [class*="chatModal"]') || documentObject;
+    // VGen's chat right info panel (Client / Past commissions sections).
+    const infoPanel = modal.querySelector?.('[class*="ChatModalInfoPanel__Container"]');
+    if (infoPanel) return infoPanel;
     for (const root of modal.querySelectorAll?.('[class*="Client"], [class*="client"], [class*="Detail"], [class*="detail"], [class*="Sidebar"], [class*="sidebar"]') || []) {
         if (root === surface || root.contains?.(surface) || surface?.contains?.(root)) continue;
         if (/client|commission|detail/i.test(String(root.textContent || '').slice(0, 400))) return root;
