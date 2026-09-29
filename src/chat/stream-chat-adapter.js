@@ -168,6 +168,28 @@ export class StreamChatAdapter {
         return channelCid(this.findChannel());
     }
 
+    selfId() {
+        const channel = this.findChannel();
+        const client = channel?.getClient?.() || channel?._client || channel?.client;
+        return String(client?.userID || client?.user?.id || '').trim();
+    }
+
+    // Lists the current user's accessible messaging conversations. Read-only:
+    // watch is disabled so no realtime subscription is created.
+    async listChannels({ signal, limit = 50 } = {}) {
+        const channel = this.findChannel();
+        const client = channel?.getClient?.() || channel?._client || channel?.client;
+        if (typeof client?.queryChannels !== 'function') return [];
+        const selfId = String(client.userID || client.user?.id || '').trim();
+        const filter = selfId ? { type: 'messaging', members: { $in: [selfId] } } : { type: 'messaging' };
+        try {
+            const channels = await client.queryChannels(filter, [{ last_message_at: -1 }], { watch: false, state: true, limit });
+            return Array.isArray(channels) ? channels : [];
+        } catch {
+            return [];
+        }
+    }
+
     findComposer() {
         return this.surface?.querySelector?.(COMPOSER_SELECTOR) || null;
     }
@@ -208,65 +230,75 @@ export class StreamChatAdapter {
         const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps, settings.showStatusBar]);
         if (element.dataset.vgenNyaChatSignature === signature) return;
         element.dataset.vgenNyaChatSignature = signature;
-        let row = group.querySelector?.(':scope > .vgen-nya-chat-meta');
-        if (!row) {
-            row = this.documentObject.createElement('div');
-            row.className = 'vgen-nya-chat-meta notranslate';
-            row.dataset.vgenNyaUi = 'chat-meta';
-            row.translate = false;
-            const seen = this.documentObject.createElement('span');
-            seen.className = 'vgen-nya-chat-seen';
-            const time = this.documentObject.createElement('time');
-            time.className = 'vgen-nya-chat-time';
-            row.append(seen, time);
-            group.append(row);
-        }
-        const seen = row.querySelector('.vgen-nya-chat-seen');
-        if (seen) seen.textContent = settings.showSeen && state.direction === 'outgoing' && state.status === 'read' ? '[seen]' : '';
-        const time = row.querySelector('time');
-        const rawTime = message.created_at || message.createdAt;
-        if (time) {
-            time.textContent = settings.showTimestamps && rawTime ? new Date(rawTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-            if (rawTime) time.setAttribute('datetime', rawTime);
-        }
-        const hasStatus = state.status === 'unread' || state.status === 'read';
-        let bar = bubble.querySelector?.(':scope > .vgen-nya-state-bar');
-        if (settings.showStatusBar !== false && hasStatus && !bar) {
-            bar = this.documentObject.createElement('span');
-            bar.className = 'vgen-nya-state-bar notranslate';
-            bar.dataset.vgenNyaUi = 'chat-status-bar';
-            bar.translate = false;
-            bar.setAttribute('aria-hidden', 'true');
-            bubble.append(bar);
-        }
-        if (bar && settings.showStatusBar !== false && hasStatus) {
-            bar.dataset.status = state.status;
-            bar.dataset.direction = state.direction;
-        } else bar?.remove();
+        group.dataset.vgenNyaMessageSide = state.direction;
 
-        let marker = bubble.querySelector?.(':scope > .vgen-nya-read-marker');
-        const canManualRead = settings.keepUnread && state.direction === 'incoming' && state.status === 'unread';
-        if (hasStatus && !marker) {
-            marker = this.documentObject.createElement('button');
+        // Status row: a thin line + the read marker on the same horizontal
+        // axis. It lives in normal flow below the bubble so it follows any
+        // translated-content height change instead of being pinned to a
+        // bubble corner.
+        const hasStatus = state.status === 'unread' || state.status === 'read';
+        let statusRow = group.querySelector?.(':scope > .vgen-nya-status-row');
+        if (settings.showStatusBar !== false && hasStatus && !statusRow) {
+            statusRow = this.documentObject.createElement('div');
+            statusRow.className = 'vgen-nya-status-row notranslate';
+            statusRow.dataset.vgenNyaUi = 'chat-status-row';
+            statusRow.translate = false;
+            const bar = this.documentObject.createElement('span');
+            bar.className = 'vgen-nya-state-bar';
+            bar.setAttribute('aria-hidden', 'true');
+            const marker = this.documentObject.createElement('button');
             marker.type = 'button';
             marker.className = 'vgen-nya-read-marker notranslate';
-            marker.dataset.vgenNyaUi = 'read-marker';
+            marker.translate = false;
             marker.addEventListener('pointerdown', (event) => event.stopPropagation());
             marker.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
                 if (marker.dataset.manual === 'true') manualRead();
             });
-            bubble.append(marker);
+            statusRow.append(bar, marker);
+            group.append(statusRow);
         }
-        if (marker && hasStatus) {
-            marker.dataset.status = state.status;
-            marker.dataset.direction = state.direction;
-            marker.dataset.manual = String(canManualRead);
-            marker.textContent = state.status === 'unread' ? '●' : '✓';
-            marker.disabled = !canManualRead;
-            marker.title = canManualRead ? '未读 · 点击标记为已读' : state.direction === 'outgoing' ? (state.status === 'read' ? '对方已读' : '对方未读') : (state.status === 'read' ? '我已读' : '未读');
-        } else marker?.remove();
+        if (statusRow && settings.showStatusBar !== false && hasStatus) {
+            statusRow.dataset.direction = state.direction;
+            const bar = statusRow.querySelector('.vgen-nya-state-bar');
+            const marker = statusRow.querySelector('.vgen-nya-read-marker');
+            if (bar) bar.dataset.status = state.status;
+            if (marker) {
+                const canManualRead = settings.keepUnread && state.direction === 'incoming' && state.status === 'unread';
+                marker.dataset.status = state.status;
+                marker.dataset.direction = state.direction;
+                marker.dataset.manual = String(canManualRead);
+                marker.textContent = state.status === 'unread' ? '●' : '✓';
+                marker.disabled = !canManualRead;
+                marker.title = canManualRead ? '未读 · 点击标记为已读' : state.direction === 'outgoing' ? (state.status === 'read' ? '对方已读' : '对方未读') : (state.status === 'read' ? '我已读' : '未读');
+            }
+        } else if (statusRow) {
+            statusRow.remove();
+        }
+
+        // Meta row (seen + timestamp) sits below the status line.
+        let meta = group.querySelector?.(':scope > .vgen-nya-chat-meta');
+        if (!meta) {
+            meta = this.documentObject.createElement('div');
+            meta.className = 'vgen-nya-chat-meta notranslate';
+            meta.dataset.vgenNyaUi = 'chat-meta';
+            meta.translate = false;
+            const seen = this.documentObject.createElement('span');
+            seen.className = 'vgen-nya-chat-seen';
+            const time = this.documentObject.createElement('time');
+            time.className = 'vgen-nya-chat-time';
+            meta.append(seen, time);
+            group.append(meta);
+        }
+        const seen = meta.querySelector('.vgen-nya-chat-seen');
+        if (seen) seen.textContent = settings.showSeen && state.direction === 'outgoing' && state.status === 'read' ? '[seen]' : '';
+        const time = meta.querySelector('time');
+        const rawTime = message.created_at || message.createdAt;
+        if (time) {
+            time.textContent = settings.showTimestamps && rawTime ? new Date(rawTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            if (rawTime) time.setAttribute('datetime', rawTime);
+        }
     }
 
     #decorateReactions(settings) {
@@ -290,7 +322,7 @@ export class StreamChatAdapter {
     }
 
     cleanup() {
-        for (const selector of ['.vgen-nya-chat-meta', '.vgen-nya-read-marker', '.vgen-nya-state-bar']) {
+        for (const selector of ['.vgen-nya-chat-meta', '.vgen-nya-status-row']) {
             for (const node of this.surface?.querySelectorAll?.(selector) || []) node.remove();
         }
         for (const node of this.surface?.querySelectorAll?.('[data-vgen-nya-compact-reactions]') || []) delete node.dataset.vgenNyaCompactReactions;

@@ -243,8 +243,20 @@ export class ReviewAssistantSession {
     }
 }
 
+// Conservative auto-detector: only treats a root as a review surface when it
+// (or a descendant) looks like a review editor. REVIEW-LIVE-01 remains
+// BLOCKED — the real VGen review surface has not been re-verified.
+function defaultReviewSurfaceResolver(root) {
+    if (!root?.querySelectorAll) return [];
+    const candidates = [];
+    for (const node of [root, ...(root.querySelectorAll('[class*="review" i], [class*="Review"]') || [])]) {
+        if (node.querySelector?.('textarea, [contenteditable="true"], [role="textbox"]')) candidates.push(node);
+    }
+    return [...new Set(candidates)];
+}
+
 export class ReviewAssistantRuntime {
-    constructor({ repository, adapter, history, clipboard, editorAdapter, documentObject = globalThis.document, AbortControllerClass = globalThis.AbortController, sessionIdFactory, now = () => Date.now() } = {}) {
+    constructor({ repository, adapter, history, clipboard, editorAdapter, documentObject = globalThis.document, AbortControllerClass = globalThis.AbortController, sessionIdFactory, now = () => Date.now(), MutationObserverClass = globalThis.MutationObserver, reviewSurfaceResolver = defaultReviewSurfaceResolver } = {}) {
         this.repository = repository;
         this.adapter = adapter || new ReviewProviderAdapter({ fetchImpl: globalThis.fetch?.bind(globalThis), AbortControllerClass });
         this.history = history || new RecentReviewHistory();
@@ -252,17 +264,21 @@ export class ReviewAssistantRuntime {
         this.editorAdapter = editorAdapter || new ReviewEditorAdapter();
         this.documentObject = documentObject;
         this.AbortControllerClass = AbortControllerClass;
+        this.MutationObserverClass = MutationObserverClass;
+        this.reviewSurfaceResolver = reviewSurfaceResolver;
         this.now = now;
         this.sequence = 0;
         this.sessionIdFactory = sessionIdFactory || (() => { this.sequence += 1; return `review-${this.sequence}`; });
         this.current = null;
+        this.activeRoot = null;
+        this.observer = null;
         this.style = null;
         this.mounted = false;
     }
 
-    // REVIEW-LIVE-01 is blocked: the real VGen review surface is not verified,
-    // so this runtime installs no observers or timers. openSurface is the only
-    // entry point and is exercised by tests/future live integration.
+    // REVIEW-LIVE-01 is still blocked (no verified review surface), but the
+    // lifecycle is wired: a scoped childList observer auto-opens the session
+    // when a review surface appears and cleans up when it is removed.
     mount() {
         if (this.mounted || !this.documentObject?.body) return false;
         this.mounted = true;
@@ -270,7 +286,29 @@ export class ReviewAssistantRuntime {
         this.style.dataset.vgenNyaUi = 'review-assistant-style';
         this.style.textContent = REVIEW_ASSISTANT_CSS;
         (this.documentObject.head || this.documentObject.body).append(this.style);
+        this.#scan(this.documentObject);
+        if (this.MutationObserverClass) {
+            this.observer = new this.MutationObserverClass((records) => {
+                for (const record of records) {
+                    for (const node of record.addedNodes || []) if (!this.current) this.#consider(node);
+                    for (const node of record.removedNodes || []) {
+                        if (node === this.activeRoot || node.contains?.(this.activeRoot) || this.activeRoot?.isConnected === false) this.closeSurface();
+                    }
+                }
+            });
+            this.observer.observe(this.documentObject.body, { childList: true });
+        }
         return true;
+    }
+
+    #scan(root) {
+        for (const candidate of this.reviewSurfaceResolver(root)) {
+            if (!this.current && this.openSurface({ root: candidate })) return;
+        }
+    }
+
+    #consider(root) {
+        this.#scan(root);
     }
 
     openSurface(surface) {
@@ -290,10 +328,12 @@ export class ReviewAssistantRuntime {
         });
         if (!session.mount()) return false;
         this.current = { surface: { editor, mountTarget }, session };
+        this.activeRoot = surface?.root || mountTarget;
         return true;
     }
 
     closeSurface() {
+        this.activeRoot = null;
         this.#release();
     }
 
@@ -305,7 +345,10 @@ export class ReviewAssistantRuntime {
     activate() {}
     unmount() {
         if (!this.mounted) return false;
+        this.observer?.disconnect();
+        this.observer = null;
         this.#release();
+        this.activeRoot = null;
         this.style?.remove();
         this.style = null;
         this.mounted = false;

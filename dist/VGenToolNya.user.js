@@ -924,14 +924,29 @@
     refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
     chevronUp: '<polyline points="18 15 12 9 6 15"/>',
     chevronDown: '<polyline points="6 9 12 15 18 9"/>',
+    chevronRight: '<polyline points="9 18 15 12 9 6"/>',
     arrowUp: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
     arrowDown: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
     chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
     plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
-    minus: '<line x1="5" y1="12" x2="19" y2="12"/>'
+    minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
+    copy: '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    warning: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    drag: '<circle cx="9" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="18" r="1"/>',
+    external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'
+  });
+  var ALIASES = Object.freeze({
+    collapse: "chevronUp",
+    expand: "chevronDown",
+    "link-copy": "link"
   });
   function iconSvg(name, size = 16) {
-    const body = PATHS[name];
+    const resolved = ALIASES[name] || name;
+    const body = PATHS[resolved];
     if (!body) return "";
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
   }
@@ -1641,11 +1656,11 @@ ${summary}
   function reactProps(element2) {
     return ownReactValue(element2, "__reactProps$");
   }
-  function expandableDisclosure(control3, surface) {
-    const content = control3.closest?.("[aria-hidden]");
+  function expandableDisclosure(control2, surface) {
+    const content = control2.closest?.("[aria-hidden]");
     const root = content?.parentElement;
     if (!root || !surface.contains(root)) return null;
-    let node = control3;
+    let node = control2;
     for (let nodeDepth = 0; node && nodeDepth < 8; nodeDepth += 1, node = node.parentElement || node.getRootNode?.()?.host || null) {
       let fiber = ownReactValue(node, "__reactFiber$") || ownReactValue(node, "__reactInternalInstance$");
       for (let depth = 0; fiber && depth < 45; depth += 1, fiber = fiber.return) {
@@ -1747,8 +1762,8 @@ ${summary}
   }
   function findDiscoveryBridge(surface) {
     const controls = surface.querySelectorAll('button, [role="button"], input[type="radio"], input[type="checkbox"]');
-    for (const control3 of controls) {
-      const bridge = walkAncestorProps(control3, (props) => {
+    for (const control2 of controls) {
+      const bridge = walkAncestorProps(control2, (props) => {
         if (props?.formValues && typeof props.formValues === "object" && typeof props.onFormValueChange === "function") {
           return { values: props.formValues, commit: props.onFormValueChange };
         }
@@ -1761,8 +1776,8 @@ ${summary}
   function findDiscoverySchema(surface) {
     const options = /* @__PURE__ */ new Map();
     const controls = surface.querySelectorAll('button, [role="button"], input[type="radio"], input[type="checkbox"]');
-    for (const control3 of controls) {
-      walkAncestorProps(control3, (props) => {
+    for (const control2 of controls) {
+      walkAncestorProps(control2, (props) => {
         const option = props?.option;
         const id = String(option?.optionID || "").trim();
         if (id && Array.isArray(option?.variants) && !options.has(id)) options.set(id, structuredClone(option));
@@ -1773,8 +1788,8 @@ ${summary}
   }
   function findSlateEditor(surface) {
     const controls = deepQueryAll(surface, '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"]');
-    for (const control3 of controls) {
-      const editor = walkAncestorProps(control3, (_props, fiber) => {
+    for (const control2 of controls) {
+      const editor = walkAncestorProps(control2, (_props, fiber) => {
         for (const candidate of fiberCandidates(fiber)) {
           let hook = candidate.memoizedState;
           for (let index = 0; hook && index < 40; index += 1, hook = hook.next) {
@@ -1800,8 +1815,8 @@ ${summary}
   }
   function findTextCommit(surface, kind) {
     const selector = kind === "title" ? 'input:not([type]), input[type="text"]' : '.descriptionEditor, [contenteditable="true"], [data-slate-editor="true"], textarea';
-    for (const control3 of deepQueryAll(surface, selector)) {
-      const commit = walkAncestorProps(control3, (props) => {
+    for (const control2 of deepQueryAll(surface, selector)) {
+      const commit = walkAncestorProps(control2, (props) => {
         if (kind === "title" && typeof props?.onChange === "function" && typeof props?.value === "string") return props.onChange;
         if (kind === "description") return props?.onEditCallback || props?.onValueChange || (typeof props?.onChange === "function" ? props.onChange : null);
         return null;
@@ -1904,8 +1919,8 @@ ${summary}
     }
     collapseDiscovery() {
       const disclosures = /* @__PURE__ */ new Map();
-      for (const control3 of this.surface.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
-        const disclosure = expandableDisclosure(control3, this.surface);
+      for (const control2 of this.surface.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
+        const disclosure = expandableDisclosure(control2, this.surface);
         if (disclosure) disclosures.set(disclosure.root, disclosure);
       }
       for (const disclosure of disclosures.values()) disclosure.collapse();
@@ -1919,8 +1934,53 @@ ${summary}
   };
 
   // src/upload/upload-assistant.js
+  var PLUGIN_VERSION = "0.1.0";
   var CSS = `
-.vgen-nya-upload{margin:10px 0;padding:10px;border:1px solid #cfd8e3;border-radius:10px;background:#f8fbff;color:#253247;font:13px/1.4 system-ui,sans-serif}.vgen-nya-upload *{box-sizing:border-box}.vgen-nya-upload__head{display:flex;align-items:center;gap:8px}.vgen-nya-upload__head strong{flex:1}.vgen-nya-upload button,.vgen-nya-upload select{font:inherit}.vgen-nya-upload button{cursor:pointer;border:1px solid #d5dee8;border-radius:7px;padding:4px 9px;background:#f1f5fa;color:inherit}.vgen-nya-upload button:hover{background:#e7eef6}.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:9px}.vgen-nya-upload__row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-upload__row>label{min-width:72px;font-weight:600}.vgen-nya-upload__row select{min-width:160px;max-width:360px}.vgen-nya-upload__groups{display:grid;gap:6px}.vgen-nya-upload__group{border:1px solid #d9e1ea;border-radius:8px;overflow:hidden}.vgen-nya-upload__group summary{padding:6px 8px;cursor:pointer}.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:5px;padding:7px}.vgen-nya-upload__tag[aria-pressed=true]{background:var(--vgn-accent,#1e78ca);border-color:var(--vgn-accent,#1e78ca);color:#fff}.vgen-nya-upload__status{min-height:1.3em;color:#55657a}.vgen-nya-upload[data-theme=dark]{background:#1f2935;color:#eef5ff;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] .vgen-nya-upload__group{border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] button{background:#2a3543;border-color:#4b5b6d}.vgen-nya-upload[data-theme=dark] button:hover{background:#334052}
+.vgen-nya-upload{--vtq-bg:#ffffff;--vtq-soft:#f3f6fb;--vtq-hover:#e9eef8;--vtq-text:#252a37;--vtq-muted:#737b8e;--vtq-border:rgba(32,45,69,.15);--vtq-blue:#4f7cff;--vtq-green:#20cda7;--vtq-danger:#d84f67;--vtq-warn:#d68b27;--vtq-blue-soft:rgba(79,124,255,.13);--vtq-green-soft:rgba(32,205,167,.13);margin:10px 0;width:100%;color:var(--vtq-text);font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+.vgen-nya-upload[data-theme=dark]{--vtq-bg:#30313f;--vtq-soft:#3a3c4a;--vtq-hover:#454857;--vtq-text:#f2f4f8;--vtq-muted:#b7bdca;--vtq-border:rgba(255,255,255,.13);--vtq-blue:#7195ff;--vtq-green:#3bdfbc;--vtq-danger:#ff7286;--vtq-warn:#f2ad50;--vtq-blue-soft:rgba(113,149,255,.17);--vtq-green-soft:rgba(59,223,188,.15)}
+.vgen-nya-upload *{box-sizing:border-box}
+.vgen-nya-upload__head{display:flex;align-items:center;gap:8px;min-height:30px}.vgen-nya-upload__head strong{flex:1;font-size:12px;font-weight:750}.vgen-nya-upload__head button{cursor:pointer;border:1px solid var(--vtq-border);border-radius:7px;background:var(--vtq-soft);color:var(--vtq-text);font:inherit}
+.vgen-nya-upload__head button:hover{background:var(--vtq-hover)}
+.vgen-nya-upload__head .vgen-nya-upload__icon{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;padding:0}
+.vgen-nya-upload__modules{display:grid;gap:8px;margin-top:6px}
+.vgen-nya-upload__strip{position:relative;overflow:hidden;border:1px solid var(--vtq-border);border-radius:8px;background:var(--vtq-soft)}
+.vgen-nya-upload__strip::before{position:absolute;top:0;right:0;left:0;z-index:1;height:2px;background:linear-gradient(90deg,var(--vtq-blue),var(--vtq-green));content:""}
+.vgen-nya-upload__strip-row{display:flex;align-items:center;gap:5px;min-height:30px;padding:4px 6px 2px 8px}
+.vgen-nya-upload__strip-label{flex:0 0 auto;font-weight:700;font-size:11px;color:var(--vtq-text)}
+.vgen-nya-upload__strip select{min-width:0;height:23px;flex:1;padding:1px 24px 1px 7px;overflow:hidden;border:1px solid var(--vtq-border);border-radius:6px;color:var(--vtq-text);background:var(--vtq-bg);cursor:pointer;font:inherit;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.vgen-nya-upload__strip select:focus{border-color:var(--vtq-blue);outline:none;box-shadow:0 0 0 2px var(--vtq-blue-soft)}
+.vgen-nya-upload__strip-action{display:inline-flex;align-items:center;justify-content:center;height:21px;min-width:21px;padding:0 5px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--vtq-muted);cursor:pointer;font-size:11px}
+.vgen-nya-upload__strip-action:hover{border-color:var(--vtq-border);color:var(--vtq-blue);background:var(--vtq-hover)}
+.vgen-nya-upload__strip--global .vgen-nya-upload__strip-row{flex-wrap:wrap;min-height:56px;padding:8px;gap:6px}
+.vgen-nya-upload__brand{display:flex;align-items:baseline;justify-content:space-between;gap:8px;width:100%;padding:2px 1px 0}
+.vgen-nya-upload__brand-name{min-width:0;overflow:hidden;font-size:13px;font-weight:850;text-overflow:ellipsis;white-space:nowrap}
+.vgen-nya-upload__brand-meta{flex:0 0 auto;color:var(--vtq-muted);font-size:10px;white-space:nowrap}
+.vgen-nya-upload__strip--global select{width:100%;height:30px;flex-basis:100%}
+.vgen-nya-upload__group{overflow:hidden;margin-bottom:8px;border:1px solid var(--vtq-border);border-radius:11px;background:var(--vtq-soft)}
+.vgen-nya-upload__group:last-child{margin-bottom:0}
+.vgen-nya-upload__group-heading{position:relative;display:flex;align-items:center;gap:8px;min-height:40px;padding:7px 9px 9px}
+.vgen-nya-upload__group-toggle{display:inline-flex;min-width:0;min-height:28px;flex:1;align-items:center;gap:8px;padding:0;border:0;color:var(--vtq-text);background:transparent;cursor:pointer;text-align:left}
+.vgen-nya-upload__group-chevron{display:inline-flex;color:var(--vtq-muted);transition:transform .15s ease}
+.vgen-nya-upload__group[data-expanded="true"] .vgen-nya-upload__group-chevron{transform:rotate(90deg)}
+.vgen-nya-upload__group-name{min-width:0;flex:1;overflow:hidden;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+.vgen-nya-upload__group-count{color:var(--vtq-muted);font-size:11px}
+.vgen-nya-upload__group-mini-actions{display:flex;align-items:center;gap:4px}
+.vgen-nya-upload__group[data-expanded="true"] .vgen-nya-upload__group-mini-actions{display:none}
+.vgen-nya-upload__group-mini-action{display:inline-flex;min-width:25px;width:25px;height:25px;padding:0;border-radius:7px;align-items:center;justify-content:center;color:var(--vtq-muted);background:transparent;border:1px solid transparent;cursor:pointer;font-weight:750}
+.vgen-nya-upload__group-mini-action:hover{border-color:var(--vtq-border);color:var(--vtq-blue);background:var(--vtq-hover)}
+.vgen-nya-upload__group-progress{position:absolute;right:9px;bottom:3px;left:9px;height:2px;overflow:hidden;border-radius:999px;background:color-mix(in srgb,var(--vtq-border) 75%,transparent)}
+.vgen-nya-upload__group-progress-fill{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--vtq-blue),var(--vtq-green));transition:width .18s ease}
+.vgen-nya-upload__tags{display:flex;flex-wrap:wrap;gap:7px;padding:0 10px 10px}
+.vgen-nya-upload__group-toolbar{display:flex;justify-content:flex-end;gap:6px;padding:0 10px 8px}
+.vgen-nya-upload__group-action{min-height:28px;padding:3px 9px;font-size:11px;border:1px solid var(--vtq-border);border-radius:8px;background:var(--vtq-soft);color:var(--vtq-text);cursor:pointer}
+.vgen-nya-upload__group-action:hover{background:var(--vtq-hover)}
+.vgen-nya-upload__tag{display:inline-flex;align-items:center;gap:3px;position:relative;max-width:100%;min-height:44px;padding:9px 17px;overflow:hidden;border:1px solid color-mix(in srgb,var(--vtq-blue) 44%,var(--vtq-border));border-radius:999px;color:var(--vtq-text);background:var(--vtq-bg);cursor:pointer;text-overflow:ellipsis;white-space:nowrap}
+.vgen-nya-upload__tag:hover{border-color:color-mix(in srgb,var(--vtq-green) 72%,var(--vtq-blue));color:var(--vtq-blue);background:linear-gradient(135deg,var(--vtq-blue-soft),var(--vtq-green-soft))}
+.vgen-nya-upload__tag[data-state="running"]{border-color:var(--vtq-green);color:#fff;background:var(--vtq-green);box-shadow:0 0 0 3px var(--vtq-green-soft)}
+.vgen-nya-upload__tag[data-state="selected"]{border-color:transparent;color:#fff;background:linear-gradient(135deg,var(--vtq-blue),var(--vtq-green));box-shadow:0 0 0 2px var(--vtq-green-soft)}
+.vgen-nya-upload__tag[data-state="removing"]{border-color:var(--vtq-blue);color:#fff;background:var(--vtq-blue);box-shadow:0 0 0 3px var(--vtq-blue-soft)}
+.vgen-nya-upload__tag[data-state="failed"]{border-color:var(--vtq-warn);color:var(--vtq-warn);background:color-mix(in srgb,var(--vtq-warn) 12%,transparent)}
+.vgen-nya-upload__status{min-height:1.3em;color:var(--vtq-muted)}
 `;
   function make3(documentObject, tag, attributes = {}, text = "") {
     const node = documentObject.createElement(tag);
@@ -2001,8 +2061,8 @@ ${summary}
       this.root.dataset.theme = snapshot.uiSettings.theme;
       this.root.replaceChildren(this.root.querySelector("style"));
       const head = make3(documentObject, "div", { className: "vgen-nya-upload__head" });
-      const refresh = make3(documentObject, "button", { type: "button", dataset: { action: "refresh" }, title: "仅刷新 Upload Assistant 配置" });
-      setButtonIcon(refresh, "refresh", { size: 14 });
+      const refresh = make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__icon", dataset: { action: "refresh" }, title: "仅刷新 Upload Assistant 配置" });
+      setButtonIcon(refresh, "refresh", { size: 13 });
       head.append(
         make3(documentObject, "strong", {}, `Upload Assistant · ${native.tags.length}/${native.tagLimit}`),
         refresh,
@@ -2012,57 +2072,102 @@ ${summary}
       if (collapsed) return;
       const modules = make3(documentObject, "div", { className: "vgen-nya-upload__modules" });
       const settings = snapshot.uploadSettings.modules;
-      if (settings.global) modules.append(this.presetRow(documentObject, "组合预设", "combination", snapshot.combinationPresets));
-      if (settings.title) modules.append(this.presetRow(documentObject, "标题", "title", snapshot.titlePresets, native.title));
-      if (settings.description) modules.append(this.presetRow(documentObject, "描述", "description", snapshot.descriptionPresets, native.description));
-      if (settings.discovery) modules.append(this.presetRow(documentObject, "发现标签", "discovery", snapshot.discoveryPresets));
-      if (settings.tags) {
-        const groups = make3(documentObject, "div", { className: "vgen-nya-upload__groups" });
-        for (const [index, group] of snapshot.searchTagGroups.entries()) {
-          const details = make3(documentObject, "details", { className: "vgen-nya-upload__group", open: snapshot.uploadSettings.groupExpanded?.[group.id] ?? index === 0 });
-          const tags = Array.isArray(group.tags) ? group.tags : [];
-          const count = tags.filter((tag) => selected.has(keyOfTag(tag))).length;
-          const summary = make3(documentObject, "summary", {}, `${group.name || "未命名"} ${count}/${tags.length}`);
-          const list = make3(documentObject, "div", { className: "vgen-nya-upload__tags" });
-          list.append(
-            make3(documentObject, "button", { type: "button", dataset: { action: "group-add", groupId: group.id } }, "全部添加"),
-            make3(documentObject, "button", { type: "button", dataset: { action: "group-remove", groupId: group.id } }, "全部删除")
-          );
-          for (const item of tags) {
-            const value = typeof item === "string" ? item : item.tag;
-            list.append(make3(documentObject, "button", {
-              type: "button",
-              className: "vgen-nya-upload__tag",
-              dataset: { action: "tag", tag: value },
-              title: item?.note ? `${value}（${item.note}）` : value,
-              "aria-pressed": String(selected.has(keyOfTag(value)))
-            }, item?.note ? `${value}【${item.note}】` : value));
-          }
-          details.addEventListener("toggle", () => {
-            const next = this.repository.read().uploadSettings;
-            next.groupExpanded[group.id] = details.open;
-            this.repository.writeSettings(next);
-          }, { once: true });
-          details.append(summary, list);
-          groups.append(details);
-        }
-        modules.append(groups);
-      }
+      if (settings.global) modules.append(this.globalStrip(documentObject, snapshot));
+      if (settings.title) modules.append(this.strip(documentObject, "标题", "title", snapshot.titlePresets, native.title));
+      if (settings.description) modules.append(this.strip(documentObject, "描述", "description", snapshot.descriptionPresets, native.description));
+      if (settings.discovery) modules.append(this.strip(documentObject, "发现标签", "discovery", snapshot.discoveryPresets));
+      if (settings.tags) this.#renderTagGroups(documentObject, modules, snapshot, selected);
       modules.append(make3(documentObject, "div", { className: "vgen-nya-upload__status", dataset: { role: "status" } }));
       this.root.append(modules);
     }
-    presetRow(documentObject, label, kind, presets, currentValue = void 0) {
-      const row = make3(documentObject, "div", { className: "vgen-nya-upload__row" });
-      const select = make3(documentObject, "select", { dataset: { kind }, "aria-label": label });
-      select.append(make3(documentObject, "option", { value: "" }, `选择${label}`));
+    globalStrip(documentObject, snapshot) {
+      const strip = make3(documentObject, "div", { className: "vgen-nya-upload__strip vgen-nya-upload__strip--global" });
+      const row = make3(documentObject, "div", { className: "vgen-nya-upload__strip-row" });
+      const brand = make3(documentObject, "div", { className: "vgen-nya-upload__brand" });
+      brand.append(
+        make3(documentObject, "span", { className: "vgen-nya-upload__brand-name" }, "VGenToolNya"),
+        make3(documentObject, "span", { className: "vgen-nya-upload__brand-meta" }, `by @Nekori_Net · v${PLUGIN_VERSION}`)
+      );
+      row.append(brand, this.#presetSelect(documentObject, "combination", snapshot.combinationPresets));
+      strip.append(row);
+      return strip;
+    }
+    strip(documentObject, label, kind, presets, currentValue = void 0) {
+      const strip = make3(documentObject, "div", { className: "vgen-nya-upload__strip" });
+      const row = make3(documentObject, "div", { className: "vgen-nya-upload__strip-row" });
+      row.append(
+        make3(documentObject, "span", { className: "vgen-nya-upload__strip-label" }, label),
+        this.#presetSelect(documentObject, kind, presets, currentValue),
+        this.#saveCurrentButton(documentObject, kind)
+      );
+      strip.append(row);
+      return strip;
+    }
+    #presetSelect(documentObject, kind, presets, currentValue = void 0) {
+      const select = make3(documentObject, "select", { dataset: { kind }, "aria-label": "选择预设" });
+      select.append(make3(documentObject, "option", { value: "" }, "选择预设"));
       for (const preset of presets) select.append(make3(documentObject, "option", { value: preset.id }, preset.name || "未命名"));
       if (currentValue !== void 0) select.value = String(presets.find((preset) => presetValue(preset, kind) === currentValue)?.id || "");
-      row.append(
-        make3(documentObject, "label", {}, label),
-        select,
-        make3(documentObject, "button", { type: "button", dataset: { action: "save-current", kind } }, "保存当前")
-      );
-      return row;
+      return select;
+    }
+    #saveCurrentButton(documentObject, kind) {
+      const button = make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__strip-action", dataset: { action: "save-current", kind }, title: "保存当前为预设" });
+      setButtonIcon(button, "plus", { size: 12, label: "保存当前" });
+      return button;
+    }
+    #renderTagGroups(documentObject, modules, snapshot, selected) {
+      for (const [index, group] of snapshot.searchTagGroups.entries()) {
+        const tags = Array.isArray(group.tags) ? group.tags : [];
+        const count = tags.filter((tag) => selected.has(keyOfTag(tag))).length;
+        const expanded = snapshot.uploadSettings.groupExpanded?.[group.id] ?? index === 0;
+        const groupEl = make3(documentObject, "div", { className: "vgen-nya-upload__group", dataset: { expanded: String(expanded) } });
+        const heading = make3(documentObject, "div", { className: "vgen-nya-upload__group-heading" });
+        const toggle = make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__group-toggle", "aria-expanded": String(expanded) });
+        const chevron = make3(documentObject, "span", { className: "vgen-nya-upload__group-chevron" });
+        chevron.innerHTML = iconSvg("chevronRight", 14);
+        toggle.append(chevron, make3(documentObject, "span", { className: "vgen-nya-upload__group-name" }, group.name || "未命名"));
+        toggle.addEventListener("click", () => {
+          const next = this.repository.read().uploadSettings;
+          next.groupExpanded[group.id] = !expanded;
+          this.repository.writeSettings(next);
+        });
+        const mini = make3(documentObject, "div", { className: "vgen-nya-upload__group-mini-actions" });
+        mini.append(this.#miniGroupAction(documentObject, "group-add", group.id, "plus", "全部添加"), this.#miniGroupAction(documentObject, "group-remove", group.id, "minus", "全部删除"));
+        const progress = make3(documentObject, "div", { className: "vgen-nya-upload__group-progress", "aria-hidden": "true" });
+        const progressFill = make3(documentObject, "span", { className: "vgen-nya-upload__group-progress-fill" });
+        progressFill.style.width = tags.length ? `${Math.round(count / tags.length * 100)}%` : "0%";
+        progress.append(progressFill);
+        heading.append(toggle, make3(documentObject, "span", { className: "vgen-nya-upload__group-count" }, `${count}/${tags.length}`), mini, progress);
+        groupEl.append(heading);
+        if (expanded) {
+          const list = make3(documentObject, "div", { className: "vgen-nya-upload__tags" });
+          for (const item of tags) list.append(this.#tagButton(documentObject, item, selected));
+          const toolbar = make3(documentObject, "div", { className: "vgen-nya-upload__group-toolbar" });
+          toolbar.append(
+            make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__group-action", dataset: { action: "group-add", groupId: group.id } }, "全部添加"),
+            make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__group-action", dataset: { action: "group-remove", groupId: group.id } }, "全部删除")
+          );
+          groupEl.append(list, toolbar);
+        }
+        modules.append(groupEl);
+      }
+    }
+    #miniGroupAction(documentObject, action, groupId, icon, label) {
+      const button = make3(documentObject, "button", { type: "button", className: "vgen-nya-upload__group-mini-action", dataset: { action, groupId }, title: label });
+      button.innerHTML = iconSvg(icon, 13);
+      return button;
+    }
+    #tagButton(documentObject, item, selected) {
+      const value = typeof item === "string" ? item : item.tag;
+      const key = keyOfTag(value);
+      const button = make3(documentObject, "button", {
+        type: "button",
+        className: "vgen-nya-upload__tag",
+        dataset: { action: "tag", tag: value, state: selected.has(key) ? "selected" : "normal" },
+        title: item?.note ? `${value}（${item.note}）` : value,
+        "aria-pressed": String(selected.has(key))
+      }, item?.note ? `${value}【${item.note}】` : value);
+      return button;
     }
     setStatus(message) {
       const status = this.root?.querySelector('[data-role="status"]');
@@ -2130,8 +2235,14 @@ ${summary}
       const current = this.adapter.read().tags;
       if (button.dataset.action === "tag") {
         const key = keyOfTag(button.dataset.tag);
-        const next2 = current.some((tag) => keyOfTag(tag) === key) ? current.filter((tag) => keyOfTag(tag) !== key) : [...current, button.dataset.tag];
-        await this.adapter.setTags(next2);
+        const removing = current.some((tag) => keyOfTag(tag) === key);
+        const next2 = removing ? current.filter((tag) => keyOfTag(tag) !== key) : [...current, button.dataset.tag];
+        button.dataset.state = removing ? "removing" : "running";
+        try {
+          await this.adapter.setTags(next2);
+        } catch {
+          button.dataset.state = "failed";
+        }
         this.render();
         return;
       }
@@ -2936,6 +3047,26 @@ ${summary}
     conversationId() {
       return channelCid(this.findChannel());
     }
+    selfId() {
+      const channel = this.findChannel();
+      const client = channel?.getClient?.() || channel?._client || channel?.client;
+      return String(client?.userID || client?.user?.id || "").trim();
+    }
+    // Lists the current user's accessible messaging conversations. Read-only:
+    // watch is disabled so no realtime subscription is created.
+    async listChannels({ signal, limit = 50 } = {}) {
+      const channel = this.findChannel();
+      const client = channel?.getClient?.() || channel?._client || channel?.client;
+      if (typeof client?.queryChannels !== "function") return [];
+      const selfId = String(client.userID || client.user?.id || "").trim();
+      const filter = selfId ? { type: "messaging", members: { $in: [selfId] } } : { type: "messaging" };
+      try {
+        const channels = await client.queryChannels(filter, [{ last_message_at: -1 }], { watch: false, state: true, limit });
+        return Array.isArray(channels) ? channels : [];
+      } catch {
+        return [];
+      }
+    }
     findComposer() {
       return this.surface?.querySelector?.(COMPOSER_SELECTOR) || null;
     }
@@ -2972,64 +3103,68 @@ ${summary}
       const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps, settings.showStatusBar]);
       if (element2.dataset.vgenNyaChatSignature === signature) return;
       element2.dataset.vgenNyaChatSignature = signature;
-      let row = group.querySelector?.(":scope > .vgen-nya-chat-meta");
-      if (!row) {
-        row = this.documentObject.createElement("div");
-        row.className = "vgen-nya-chat-meta notranslate";
-        row.dataset.vgenNyaUi = "chat-meta";
-        row.translate = false;
-        const seen2 = this.documentObject.createElement("span");
-        seen2.className = "vgen-nya-chat-seen";
-        const time2 = this.documentObject.createElement("time");
-        time2.className = "vgen-nya-chat-time";
-        row.append(seen2, time2);
-        group.append(row);
-      }
-      const seen = row.querySelector(".vgen-nya-chat-seen");
-      if (seen) seen.textContent = settings.showSeen && state.direction === "outgoing" && state.status === "read" ? "[seen]" : "";
-      const time = row.querySelector("time");
-      const rawTime = message.created_at || message.createdAt;
-      if (time) {
-        time.textContent = settings.showTimestamps && rawTime ? new Date(rawTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-        if (rawTime) time.setAttribute("datetime", rawTime);
-      }
+      group.dataset.vgenNyaMessageSide = state.direction;
       const hasStatus = state.status === "unread" || state.status === "read";
-      let bar = bubble.querySelector?.(":scope > .vgen-nya-state-bar");
-      if (settings.showStatusBar !== false && hasStatus && !bar) {
-        bar = this.documentObject.createElement("span");
-        bar.className = "vgen-nya-state-bar notranslate";
-        bar.dataset.vgenNyaUi = "chat-status-bar";
-        bar.translate = false;
+      let statusRow = group.querySelector?.(":scope > .vgen-nya-status-row");
+      if (settings.showStatusBar !== false && hasStatus && !statusRow) {
+        statusRow = this.documentObject.createElement("div");
+        statusRow.className = "vgen-nya-status-row notranslate";
+        statusRow.dataset.vgenNyaUi = "chat-status-row";
+        statusRow.translate = false;
+        const bar = this.documentObject.createElement("span");
+        bar.className = "vgen-nya-state-bar";
         bar.setAttribute("aria-hidden", "true");
-        bubble.append(bar);
-      }
-      if (bar && settings.showStatusBar !== false && hasStatus) {
-        bar.dataset.status = state.status;
-        bar.dataset.direction = state.direction;
-      } else bar?.remove();
-      let marker = bubble.querySelector?.(":scope > .vgen-nya-read-marker");
-      const canManualRead = settings.keepUnread && state.direction === "incoming" && state.status === "unread";
-      if (hasStatus && !marker) {
-        marker = this.documentObject.createElement("button");
+        const marker = this.documentObject.createElement("button");
         marker.type = "button";
         marker.className = "vgen-nya-read-marker notranslate";
-        marker.dataset.vgenNyaUi = "read-marker";
+        marker.translate = false;
         marker.addEventListener("pointerdown", (event) => event.stopPropagation());
         marker.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
           if (marker.dataset.manual === "true") manualRead();
         });
-        bubble.append(marker);
+        statusRow.append(bar, marker);
+        group.append(statusRow);
       }
-      if (marker && hasStatus) {
-        marker.dataset.status = state.status;
-        marker.dataset.direction = state.direction;
-        marker.dataset.manual = String(canManualRead);
-        marker.textContent = state.status === "unread" ? "●" : "✓";
-        marker.disabled = !canManualRead;
-        marker.title = canManualRead ? "未读 · 点击标记为已读" : state.direction === "outgoing" ? state.status === "read" ? "对方已读" : "对方未读" : state.status === "read" ? "我已读" : "未读";
-      } else marker?.remove();
+      if (statusRow && settings.showStatusBar !== false && hasStatus) {
+        statusRow.dataset.direction = state.direction;
+        const bar = statusRow.querySelector(".vgen-nya-state-bar");
+        const marker = statusRow.querySelector(".vgen-nya-read-marker");
+        if (bar) bar.dataset.status = state.status;
+        if (marker) {
+          const canManualRead = settings.keepUnread && state.direction === "incoming" && state.status === "unread";
+          marker.dataset.status = state.status;
+          marker.dataset.direction = state.direction;
+          marker.dataset.manual = String(canManualRead);
+          marker.textContent = state.status === "unread" ? "●" : "✓";
+          marker.disabled = !canManualRead;
+          marker.title = canManualRead ? "未读 · 点击标记为已读" : state.direction === "outgoing" ? state.status === "read" ? "对方已读" : "对方未读" : state.status === "read" ? "我已读" : "未读";
+        }
+      } else if (statusRow) {
+        statusRow.remove();
+      }
+      let meta = group.querySelector?.(":scope > .vgen-nya-chat-meta");
+      if (!meta) {
+        meta = this.documentObject.createElement("div");
+        meta.className = "vgen-nya-chat-meta notranslate";
+        meta.dataset.vgenNyaUi = "chat-meta";
+        meta.translate = false;
+        const seen2 = this.documentObject.createElement("span");
+        seen2.className = "vgen-nya-chat-seen";
+        const time2 = this.documentObject.createElement("time");
+        time2.className = "vgen-nya-chat-time";
+        meta.append(seen2, time2);
+        group.append(meta);
+      }
+      const seen = meta.querySelector(".vgen-nya-chat-seen");
+      if (seen) seen.textContent = settings.showSeen && state.direction === "outgoing" && state.status === "read" ? "[seen]" : "";
+      const time = meta.querySelector("time");
+      const rawTime = message.created_at || message.createdAt;
+      if (time) {
+        time.textContent = settings.showTimestamps && rawTime ? new Date(rawTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+        if (rawTime) time.setAttribute("datetime", rawTime);
+      }
     }
     #decorateReactions(settings) {
       for (const reactions of this.surface.querySelectorAll?.('[data-testid="reaction-list"], .str-chat__message-reactions') || []) {
@@ -3049,7 +3184,7 @@ ${summary}
       return true;
     }
     cleanup() {
-      for (const selector of [".vgen-nya-chat-meta", ".vgen-nya-read-marker", ".vgen-nya-state-bar"]) {
+      for (const selector of [".vgen-nya-chat-meta", ".vgen-nya-status-row"]) {
         for (const node of this.surface?.querySelectorAll?.(selector) || []) node.remove();
       }
       for (const node of this.surface?.querySelectorAll?.("[data-vgen-nya-compact-reactions]") || []) delete node.dataset.vgenNyaCompactReactions;
@@ -3320,162 +3455,6 @@ ${summary}
       return b - a;
     });
   }
-  var DEFAULT_MAX_CHANNELS = 5;
-  var DEFAULT_MAX_MESSAGES_PER_CHANNEL = 500;
-  var ChatSearchCache = class {
-    constructor({ maxChannels = DEFAULT_MAX_CHANNELS, maxMessages = DEFAULT_MAX_MESSAGES_PER_CHANNEL } = {}) {
-      this.maxChannels = maxChannels;
-      this.maxMessages = maxMessages;
-      this.channels = /* @__PURE__ */ new Map();
-    }
-    get(cid) {
-      const entry = this.channels.get(cid);
-      if (!entry) return null;
-      this.channels.delete(cid);
-      this.channels.set(cid, entry);
-      return entry;
-    }
-    // Merges a fetched page into the channel entry and returns the entry. The SDK
-    // returns each page in ascending (oldest-first) order, so the first message of
-    // a page is its oldest and becomes the next id_lt cursor.
-    record(cid, messages, { complete = false } = {}) {
-      const entry = this.get(cid) || { messages: [], ids: /* @__PURE__ */ new Set(), complete: false, oldestId: null };
-      let firstNewId = null;
-      for (const message of messages) {
-        if (!message?.messageId || entry.ids.has(message.messageId)) continue;
-        entry.ids.add(message.messageId);
-        entry.messages.push(message);
-        if (firstNewId === null) firstNewId = message.messageId;
-      }
-      if (firstNewId !== null) entry.oldestId = firstNewId;
-      entry.complete = Boolean(entry.complete || complete);
-      if (entry.messages.length > this.maxMessages) {
-        const overflow = entry.messages.length - this.maxMessages;
-        const dropped = entry.messages.splice(0, overflow);
-        for (const message of dropped) entry.ids.delete(message.messageId);
-        entry.complete = false;
-      }
-      this.channels.delete(cid);
-      this.channels.set(cid, entry);
-      while (this.channels.size > this.maxChannels) {
-        const oldestCid = this.channels.keys().next().value;
-        this.channels.delete(oldestCid);
-      }
-      return entry;
-    }
-    oldestId(entry) {
-      return entry?.oldestId || null;
-    }
-    clear() {
-      this.channels.clear();
-    }
-    get size() {
-      return this.channels.size;
-    }
-  };
-  var ChatSearchEngine = class {
-    constructor({ cache = new ChatSearchCache(), maxPagesPerSearch = 5, pageSize = 100 } = {}) {
-      this.cache = cache;
-      this.maxPagesPerSearch = maxPagesPerSearch;
-      this.pageSize = pageSize;
-      this.operation = 0;
-      this.listeners = /* @__PURE__ */ new Set();
-      this.state = SEARCH_STATES.idle;
-      this.results = [];
-      this.source = null;
-      this.partial = false;
-      this.error = null;
-    }
-    subscribe(listener) {
-      this.listeners.add(listener);
-      return () => this.listeners.delete(listener);
-    }
-    get snapshot() {
-      return { state: this.state, results: this.results, source: this.source, partial: this.partial, error: this.error };
-    }
-    cancel(reason = "superseded") {
-      this.operation += 1;
-    }
-    async search({ query, history, cid }) {
-      const operation = ++this.operation;
-      const normalized = normalizeSearchText(query);
-      if (!normalized) {
-        this.#set({ state: SEARCH_STATES.idle, results: [], source: null, partial: false, error: null });
-        return this.snapshot;
-      }
-      this.#set({ state: SEARCH_STATES.searching, results: [], source: null, partial: false, error: null });
-      try {
-        if (history?.supportsServerSearch?.()) {
-          const server = await history.searchServer(normalized);
-          if (operation !== this.operation) return this.snapshot;
-          if (server && server.length) {
-            this.#set({ state: SEARCH_STATES.results, results: sortNewestFirst(server), source: SEARCH_SOURCES.server, partial: false, error: null });
-            return this.snapshot;
-          }
-        }
-        const result = await this.#searchHistory(normalized, history, cid, operation);
-        if (operation !== this.operation) return this.snapshot;
-        this.#set(result);
-        return this.snapshot;
-      } catch (error) {
-        if (operation !== this.operation) return this.snapshot;
-        this.#set({ state: SEARCH_STATES.error, results: [], source: null, partial: false, error: String(error?.message || error) });
-        return this.snapshot;
-      }
-    }
-    async #searchHistory(normalized, history, cid, operation) {
-      let entry = this.cache.get(cid) || this.cache.record(cid, [], { complete: false });
-      let pagesFetched = 0;
-      let available = true;
-      while (!entry.complete && pagesFetched < this.maxPagesPerSearch && available) {
-        const before = this.cache.oldestId(entry);
-        const page = await history.fetchHistoryPage({ before, limit: this.pageSize });
-        if (operation !== this.operation) return this.snapshot;
-        if (!page?.available) {
-          available = false;
-          break;
-        }
-        const messages2 = page.messages || [];
-        if (!messages2.length) {
-          entry = this.cache.record(cid, [], { complete: true });
-          break;
-        }
-        const complete = messages2.length < this.pageSize;
-        entry = this.cache.record(cid, messages2, { complete });
-        pagesFetched += 1;
-      }
-      const { messages } = entry;
-      const matches = sortNewestFirst(messages.filter((message) => matchesQuery(message.text, normalized)));
-      const partial = !entry.complete && available === true;
-      const source = available ? SEARCH_SOURCES.history : SEARCH_SOURCES.loaded;
-      if (!available) {
-        const loaded = history.loadedMessages?.() || [];
-        const loadedMatches = sortNewestFirst(loaded.filter((message) => matchesQuery(message.text, normalized)));
-        return {
-          state: loadedMatches.length ? SEARCH_STATES.results : SEARCH_STATES.empty,
-          results: loadedMatches,
-          source: SEARCH_SOURCES.loaded,
-          partial: true,
-          error: null
-        };
-      }
-      return {
-        state: matches.length ? SEARCH_STATES.results : SEARCH_STATES.empty,
-        results: matches,
-        source,
-        partial,
-        error: null
-      };
-    }
-    #set({ state, results, source, partial, error }) {
-      this.state = state;
-      this.results = results;
-      this.source = source;
-      this.partial = partial;
-      this.error = error;
-      for (const listener of this.listeners) listener(this.snapshot);
-    }
-  };
 
   // src/chat/chat-search-locator.js
   var MESSAGE_ID_SELECTOR = "[data-message-id]";
@@ -3544,21 +3523,25 @@ ${summary}
   };
 
   // src/chat/chat-search-ui.js
+  var LIST_SELECTOR = '.str-chat__channel-list, [data-testid*="channel-list"], [class*="ChannelList__Container"]';
+  var PREVIEW_SELECTOR2 = '.str-chat__channel-preview, [data-testid*="channel-preview"], [class*="ChatChannelListPreview"]';
   var CHAT_SEARCH_CSS = `
-.vgen-nya-chat-search{margin:0;padding:6px 8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent);background:color-mix(in srgb,currentColor 3%,transparent);display:flex;flex-direction:column;gap:6px;font:12px/1.4 system-ui,sans-serif;color:inherit;max-width:100%}
-.vgen-nya-chat-search__bar{display:flex;align-items:center;gap:6px}
-.vgen-nya-chat-search input{flex:1;min-width:0;padding:5px 8px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;background:Canvas;color:CanvasText;font:inherit}
+.vgen-nya-chat-search{position:relative;margin:0;padding:8px;border-bottom:1px solid color-mix(in srgb,currentColor 16%,transparent);background:color-mix(in srgb,currentColor 3%,transparent);font:12px/1.4 system-ui,sans-serif;color:inherit;max-width:100%}
+.vgen-nya-chat-search__bar{position:relative;display:flex;align-items:center}
+.vgen-nya-chat-search input{flex:1;min-width:0;height:30px;padding:4px 30px 4px 10px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:8px;background:Canvas;color:CanvasText;font:inherit}
 .vgen-nya-chat-search input:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
-.vgen-nya-chat-search button{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 9px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}
-.vgen-nya-chat-search button:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
-.vgen-nya-chat-search button:disabled{opacity:.5;cursor:default}
-.vgen-nya-chat-search__status{margin:0;opacity:.75}
+.vgen-nya-chat-search__icon{position:absolute;right:7px;display:flex;align-items:center;color:color-mix(in srgb,currentColor 55%,transparent);pointer-events:none}
+.vgen-nya-chat-search__status{margin:5px 1px 0;opacity:.75;font-size:11px}
 .vgen-nya-chat-search__status[data-error="true"]{color:#b42318}
-.vgen-nya-chat-search__results{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:220px;overflow:auto}
-.vgen-nya-chat-search__result{display:block;width:100%;text-align:left;padding:6px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:7px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;cursor:pointer}
+.vgen-nya-chat-search__results{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;max-height:420px;overflow:auto}
+.vgen-nya-chat-search__result{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;cursor:pointer}
 .vgen-nya-chat-search__result:hover{border-color:color-mix(in srgb,currentColor 34%,transparent);background:color-mix(in srgb,currentColor 9%,transparent)}
-.vgen-nya-chat-search__result-snippet{display:block;white-space:pre-wrap;overflow-wrap:anywhere}
-.vgen-nya-chat-search__result-meta{display:block;margin-top:3px;font-size:11px;opacity:.72}
+.vgen-nya-chat-search__avatar{flex:0 0 28px;width:28px;height:28px;border-radius:8px;object-fit:cover;background:color-mix(in srgb,currentColor 12%,transparent)}
+.vgen-nya-chat-search__meta{flex:1;min-width:0}
+.vgen-nya-chat-search__name{display:block;overflow:hidden;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+.vgen-nya-chat-search__id{display:block;color:color-mix(in srgb,currentColor 62%,transparent);font-size:11px}
+.vgen-nya-chat-search__snippet{display:block;margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere;opacity:.92}
+.vgen-nya-chat-search__time{flex:0 0 auto;align-self:flex-start;color:color-mix(in srgb,currentColor 55%,transparent);font-size:11px}
 `;
   function make5(documentObject, tagName, className = "", text = "") {
     const node = documentObject.createElement(tagName);
@@ -3566,30 +3549,90 @@ ${summary}
     node.textContent = text;
     return node;
   }
-  function mountAtTop(surface, node) {
-    if (typeof surface?.prepend === "function") surface.prepend(node);
-    else if (typeof surface?.insertBefore === "function" && surface.firstChild) surface.insertBefore(node, surface.firstChild);
-    else surface?.append?.(node);
+  function channelCid3(channel) {
+    return channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null);
+  }
+  function channelDisplayInfo(channel, selfId) {
+    const members = channel?.state?.members || channel?.data?.members || {};
+    const list = Array.isArray(members) ? members : Object.values(members);
+    const other = list.find((member) => {
+      const id = member?.user?.id || member?.user_id || member?.id;
+      return id && String(id) !== String(selfId);
+    }) || list[0];
+    return {
+      userId: other?.user?.id || other?.user_id || other?.id || null,
+      displayName: other?.user?.name || other?.user?.username || other?.name || "",
+      username: other?.user?.username || other?.username || "",
+      avatar: other?.user?.image || other?.user?.avatarURL || ""
+    };
+  }
+  async function searchChannel(query, channel, { historyAdapterFactory, selfId, maxPages = 5, pageSize = 100, signal, operation, isStale } = {}) {
+    const cid = channelCid3(channel);
+    const history = historyAdapterFactory(channel);
+    const info = channelDisplayInfo(channel, selfId);
+    const matches = [];
+    const seen = /* @__PURE__ */ new Set();
+    const loaded = history.loadedMessages?.() || [];
+    for (const message of loaded) {
+      if (seen.has(message.messageId) || !matchesQuery(message.text, query)) continue;
+      seen.add(message.messageId);
+      matches.push({ ...message, cid, channel: info });
+    }
+    let before = null;
+    for (let page = 0; page < maxPages; page += 1) {
+      if (isStale?.() || signal?.aborted) break;
+      const result = await history.fetchHistoryPage({ before, limit: pageSize, signal });
+      if (!result?.available) break;
+      const messages = result.messages || [];
+      for (const message of messages) {
+        if (seen.has(message.messageId) || !matchesQuery(message.text, query)) continue;
+        seen.add(message.messageId);
+        matches.push({ ...message, cid, channel: info });
+      }
+      if (!messages.length || messages.length < pageSize) break;
+      before = messages[0].messageId;
+    }
+    return matches;
+  }
+  async function searchAllChannels(query, channels, options = {}) {
+    const normalized = normalizeSearchText(query);
+    const results = [];
+    const concurrency = options.concurrency || 3;
+    let index = 0;
+    async function worker() {
+      while (index < channels.length) {
+        const channel = channels[index];
+        index += 1;
+        if (options.isStale?.() || options.signal?.aborted) return;
+        const matches = await searchChannel(normalized, channel, options);
+        results.push(...matches);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, channels.length || 1) }, () => worker()));
+    return sortNewestFirst(results);
   }
   var ChatSearchController = class {
-    constructor({ surface, adapter, documentObject = surface?.ownerDocument || globalThis.document, historyAdapterFactory, locatorFactory, debounceMs = 300 } = {}) {
+    constructor({ surface, adapter, documentObject = surface?.ownerDocument || globalThis.document, historyAdapterFactory, locatorFactory, debounceMs = 400, maxChannels = 10, maxPagesPerChannel = 5, pageSize = 100, MutationObserverClass = globalThis.MutationObserver } = {}) {
       this.surface = surface;
       this.adapter = adapter;
       this.documentObject = documentObject;
+      this.MutationObserverClass = MutationObserverClass;
       this.historyAdapterFactory = historyAdapterFactory || ((channel) => new ChatHistoryAdapter({ channel }));
       this.locatorFactory = locatorFactory || (() => new ChatSearchLocator({ surface, documentObject }));
-      this.debounceMs = debounceMs;
-      this.engine = new ChatSearchEngine({ cache: new ChatSearchCache() });
       this.locator = this.locatorFactory();
-      this.cid = null;
+      this.debounceMs = debounceMs;
+      this.maxChannels = maxChannels;
+      this.maxPagesPerChannel = maxPagesPerChannel;
+      this.pageSize = pageSize;
       this.root = null;
+      this.listHost = null;
       this.input = null;
       this.statusNode = null;
       this.listNode = null;
       this.debounceTimer = null;
+      this.operation = 0;
       this.mounted = false;
-      this.unsubscribe = this.engine.subscribe(() => this.#renderResults());
-      this.onInput = () => this.#scheduleSearch();
+      this.onInput = () => this.#schedule();
       this.onKeydown = (event) => {
         if (event.key === "Enter") {
           event.preventDefault?.();
@@ -3599,55 +3642,51 @@ ${summary}
     }
     mount() {
       if (this.mounted || !this.documentObject?.createElement) return false;
+      this.listHost = this.#findListHost();
+      if (!this.listHost) return false;
       this.mounted = true;
       this.root = make5(this.documentObject, "div", "vgen-nya-chat-search notranslate");
       this.root.dataset.vgenNyaUi = "chat-search";
       this.root.translate = false;
-      this.#build();
-      mountAtTop(this.surface, this.root);
-      this.refresh();
-      return true;
-    }
-    #build() {
-      const documentObject = this.documentObject;
-      const bar = make5(documentObject, "div", "vgen-nya-chat-search__bar");
-      this.input = make5(documentObject, "input", "");
+      const bar = make5(this.documentObject, "div", "vgen-nya-chat-search__bar");
+      this.input = make5(this.documentObject, "input", "");
       this.input.type = "text";
-      this.input.placeholder = "搜索当前会话…";
-      this.input.setAttribute("aria-label", "搜索聊天历史");
+      this.input.placeholder = "搜索聊天记录…";
+      this.input.setAttribute("aria-label", "搜索所有聊天记录");
       this.input.addEventListener("input", this.onInput);
       this.input.addEventListener("keydown", this.onKeydown);
-      const run = make5(documentObject, "button", "notranslate", "搜索");
-      run.type = "button";
-      run.translate = false;
-      run.dataset.action = "search";
-      run.addEventListener("click", () => void this.#runNow());
-      bar.append(this.input, run);
-      this.statusNode = make5(documentObject, "p", "vgen-nya-chat-search__status notranslate");
+      const icon = make5(this.documentObject, "span", "vgen-nya-chat-search__icon");
+      icon.innerHTML = iconSvg("search", 15);
+      icon.setAttribute("aria-hidden", "true");
+      bar.append(this.input, icon);
+      this.statusNode = make5(this.documentObject, "p", "vgen-nya-chat-search__status notranslate");
       this.statusNode.translate = false;
-      this.listNode = make5(documentObject, "ul", "vgen-nya-chat-search__results");
+      this.listNode = make5(this.documentObject, "ul", "vgen-nya-chat-search__results");
       this.root.append(bar, this.statusNode, this.listNode);
+      if (typeof this.listHost.prepend === "function") this.listHost.prepend(this.root);
+      else if (typeof this.listHost.insertBefore === "function" && this.listHost.firstChild) this.listHost.insertBefore(this.root, this.listHost.firstChild);
+      else this.listHost.append?.(this.root);
+      return true;
+    }
+    #findListHost() {
+      const roots = this.documentObject?.querySelectorAll?.(LIST_SELECTOR) || [];
+      let best = null;
+      let bestScore = -1;
+      for (const root of roots) {
+        const previews = root.querySelectorAll?.(PREVIEW_SELECTOR2)?.length || 0;
+        if (previews > bestScore) {
+          bestScore = previews;
+          best = root;
+        }
+      }
+      return best;
     }
     ownsMutation(record) {
       return Boolean(this.root && (record?.target === this.root || this.root.contains?.(record?.target)));
     }
     refresh() {
-      const channel = this.adapter?.findChannel?.();
-      const cid = channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null) || null;
-      if (cid !== this.cid) {
-        this.cid = cid;
-        this.engine.cancel("channel-change");
-        if (this.input) this.input.value = "";
-        this.#renderResults();
-      }
     }
-    #channel() {
-      return this.adapter?.findChannel?.() || null;
-    }
-    #historyAdapter() {
-      return this.historyAdapterFactory(this.#channel());
-    }
-    #scheduleSearch() {
+    #schedule() {
       if (this.debounceTimer !== null) globalThis.clearTimeout(this.debounceTimer);
       this.debounceTimer = globalThis.setTimeout(() => {
         this.debounceTimer = null;
@@ -3663,50 +3702,72 @@ ${summary}
     }
     async #run() {
       if (!this.input) return;
+      const operation = ++this.operation;
       const query = this.input.value || "";
-      const channel = this.#channel();
-      const cid = channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null);
-      if (!cid || !channel) {
-        this.#setStatus("无法读取当前会话", true);
+      const normalized = normalizeSearchText(query);
+      if (!normalized) {
+        this.#render([], null);
         return;
       }
-      await this.engine.search({ query, history: this.#historyAdapter(), cid });
+      this.#setStatus("搜索中…", false);
+      this.#render([], null);
+      try {
+        const channels = await this.adapter.listChannels?.() || [];
+        const selfId = String(this.adapter.selfId?.() || "");
+        const results = await searchAllChannels(normalized, channels.slice(0, this.maxChannels), {
+          historyAdapterFactory: this.historyAdapterFactory,
+          selfId,
+          maxPages: this.maxPagesPerChannel,
+          pageSize: this.pageSize,
+          signal: void 0,
+          isStale: () => operation !== this.operation
+        });
+        if (operation !== this.operation) return;
+        this.#render(results, normalized);
+      } catch (error) {
+        if (operation !== this.operation) return;
+        this.#setStatus(`搜索失败：${error?.message || "未知错误"}`, true);
+      }
     }
-    async #locate(messageId) {
-      if (!messageId) return;
-      const history = this.#historyAdapter();
-      await this.locator.locateOrLoad(messageId, { load: (id) => history.loadAround(id) });
-    }
-    #renderResults() {
-      const snapshot = this.engine.snapshot;
-      if (!this.root) return;
-      const documentObject = this.documentObject;
+    #render(results, query) {
       this.listNode.replaceChildren();
-      const resultNodes = [];
-      for (const message of snapshot.results) {
+      const documentObject = this.documentObject;
+      for (const message of results) {
         const button = make5(documentObject, "button", "vgen-nya-chat-search__result");
         button.type = "button";
-        button.dataset.action = "locate";
+        button.dataset.action = "open";
         button.dataset.messageId = message.messageId;
-        const snippet = make5(documentObject, "span", "vgen-nya-chat-search__result-snippet", makeSnippet(message.text));
+        button.dataset.userId = message.channel?.userId || "";
+        const avatar = make5(documentObject, "img", "vgen-nya-chat-search__avatar");
+        avatar.alt = "";
+        avatar.src = message.channel?.avatar || "";
+        const meta = make5(documentObject, "span", "vgen-nya-chat-search__meta");
+        meta.append(
+          make5(documentObject, "span", "vgen-nya-chat-search__name", message.channel?.displayName || message.channel?.username || message.authorName || ""),
+          make5(documentObject, "span", "vgen-nya-chat-search__id", message.channel?.username ? `@${message.channel.username}` : "")
+        );
+        const snippet = make5(documentObject, "span", "vgen-nya-chat-search__snippet", makeSnippet(message.text));
         snippet.translate = true;
-        const meta = make5(documentObject, "span", "vgen-nya-chat-search__result-meta notranslate", this.#meta(message));
-        meta.translate = false;
-        button.append(snippet, meta);
-        button.addEventListener("click", () => void this.#locate(message.messageId));
-        resultNodes.push(button);
+        meta.append(snippet);
+        const time = make5(documentObject, "span", "vgen-nya-chat-search__time notranslate", message.createdAt ? new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+        time.translate = false;
+        button.append(avatar, meta, time);
+        button.addEventListener("click", () => void this.#open(message));
+        this.listNode.append(button);
       }
-      this.listNode.append(...resultNodes);
-      if (snapshot.state === SEARCH_STATES.searching) this.#setStatus("搜索中…", false);
-      else if (snapshot.state === SEARCH_STATES.error) this.#setStatus(`搜索失败：${snapshot.error || "未知错误"}`, true);
-      else if (snapshot.state === SEARCH_STATES.results) this.#setStatus(`${snapshot.results.length} 条结果${snapshot.partial ? " · 仅搜索已获取的部分历史" : ""}${snapshot.source === "loaded" ? " · 仅当前已加载消息" : ""}`, false);
-      else if (snapshot.state === SEARCH_STATES.empty) this.#setStatus(snapshot.source === "loaded" ? "无结果（仅当前已加载消息）" : "无结果", false);
-      else this.#setStatus("", false);
+      if (query && results.length === 0) this.#setStatus("无结果", false);
+      else if (query) this.#setStatus(`${results.length} 条结果`, false);
     }
-    #meta(message) {
-      const author = message.authorName || message.authorId || "";
-      const time = message.createdAt ? new Date(message.createdAt).toLocaleString?.() || message.createdAt : "";
-      return [author, time].filter(Boolean).join(" · ");
+    async #open(message) {
+      const documentObject = this.documentObject;
+      if (message.channel?.userId) {
+        try {
+          await this.adapter.constructor.openUser?.({ userID: message.channel.userId }, { documentObject, MutationObserverClass: this.MutationObserverClass });
+        } catch {
+        }
+      }
+      const history = this.historyAdapterFactory(this.adapter.findChannel?.());
+      await this.locator.locateOrLoad(message.messageId, { load: (id) => history.loadAround(id) });
     }
     #setStatus(text, error) {
       if (!this.statusNode) return;
@@ -3716,11 +3777,9 @@ ${summary}
     unmount() {
       if (!this.mounted) return false;
       this.mounted = false;
+      this.operation += 1;
       if (this.debounceTimer !== null) globalThis.clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
-      this.engine.cancel("session-closed");
-      this.unsubscribe?.();
-      this.unsubscribe = null;
       this.locator.clearHighlights();
       this.input?.removeEventListener("input", this.onInput);
       this.input?.removeEventListener("keydown", this.onKeydown);
@@ -3729,6 +3788,7 @@ ${summary}
       this.input = null;
       this.statusNode = null;
       this.listNode = null;
+      this.listHost = null;
       return true;
     }
   };
@@ -3736,15 +3796,20 @@ ${summary}
   // src/chat/chat-assistant.js
   var CHAT_PORTAL_SELECTOR2 = '.ReactModalPortal, [data-radix-portal], [data-portal], [class*="ChatLauncher__OuterContainer"], [class*="ChatModal__Container"]';
   var CHAT_CSS = `
+.vgen-nya-status-row{display:flex!important;align-items:center!important;width:100%!important;box-sizing:border-box!important;margin:0!important;padding:2px 2px 0 10px!important}
+.vgen-nya-status-row .vgen-nya-state-bar{flex:1!important;height:2px!important;min-width:0!important;border-radius:999px;background:#3bdfbc;opacity:.85;pointer-events:none}
+.vgen-nya-status-row .vgen-nya-state-bar[data-status="unread"]{background:#ff6476}
+.vgen-nya-status-row .vgen-nya-state-bar[data-status="pending"]{background:#e6a2ad}
+.vgen-nya-status-row .vgen-nya-read-marker{flex:0 0 auto!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;width:16px!important;height:16px!important;margin-left:4px!important;padding:0!important;border:0!important;border-radius:50%!important;background:transparent!important;color:#3bdfbc!important;font:bold 13px/16px system-ui!important;filter:drop-shadow(0 1px 1px #0007)}
+.vgen-nya-status-row .vgen-nya-read-marker[data-status="unread"]{color:#ff6476}
+.vgen-nya-status-row .vgen-nya-read-marker[data-status="pending"]{color:#e6a2ad}
+.vgen-nya-status-row .vgen-nya-read-marker[data-manual="true"]{cursor:pointer}
+.vgen-nya-status-row .vgen-nya-read-marker[data-manual="true"]:hover,.vgen-nya-status-row .vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.15);outline:2px solid currentColor;outline-offset:1px}
 .vgen-nya-chat-meta{display:flex!important;align-items:center;justify-content:space-between;gap:20px;width:100%;padding-top:3px;font:11px/18px system-ui,sans-serif;opacity:.72;user-select:text;pointer-events:auto}
 .vgen-nya-chat-time{margin-left:auto;white-space:nowrap}
-.str-chat__message-bubble:has(>.vgen-nya-read-marker),.str-chat__message-bubble:has(>.vgen-nya-state-bar){position:relative!important;overflow:visible!important}
-.str-chat__message-bubble:has(>.vgen-nya-state-bar){display:flex!important;flex-direction:column!important;height:auto!important}
-.vgen-nya-state-bar{position:static!important;display:block!important;flex:0 0 2px!important;width:42px!important;height:2px!important;min-height:2px!important;margin-left:auto!important;border-radius:999px;background:#3bdfbc;opacity:.82;pointer-events:none}
-.vgen-nya-state-bar[data-status="unread"]{background:#ff6476}.vgen-nya-state-bar[data-direction="outgoing"]{order:-1;margin-top:2px;margin-bottom:5px}.vgen-nya-state-bar[data-direction="incoming"]{order:2147483647;margin-top:5px;margin-bottom:2px}
-.vgen-nya-read-marker{position:absolute!important;right:-8px;z-index:30;display:flex!important;align-items:center;justify-content:center;width:20px;height:20px;border:0;border-radius:50%;padding:0;background:transparent;color:#3bdfbc;font:bold 15px/20px system-ui;filter:drop-shadow(0 1px 1px #0007)}
-.vgen-nya-read-marker[data-direction="outgoing"]{top:-8px}.vgen-nya-read-marker[data-direction="incoming"]{bottom:-8px}.vgen-nya-read-marker[data-status="unread"]{color:#ff6476}.vgen-nya-read-marker[data-manual="true"]{cursor:pointer}.vgen-nya-read-marker[data-manual="true"]:hover{background:#ff647630;box-shadow:0 0 0 2px #ff647655;transform:scale(1.08)}.vgen-nya-read-marker[data-manual="true"]:focus-visible{transform:scale(1.12);outline:2px solid currentColor;outline-offset:1px}
 [data-vgen-nya-compact-reactions="true"]{--str-chat__stream-emoji-size:12px!important;position:static!important;display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:3px!important;width:fit-content!important;min-height:0!important;margin:0!important;padding:4px 0 0!important;background:transparent!important;border:0!important;box-shadow:none!important}
+.str-chat__message-bubble-group[data-vgen-nya-message-side="outgoing"] [data-vgen-nya-compact-reactions="true"]{margin-left:auto!important}
+.str-chat__message-bubble-group[data-vgen-nya-message-side="incoming"] [data-vgen-nya-compact-reactions="true"]{margin-right:auto!important}
 [data-vgen-nya-compact-reactions="true"] button[data-reaction-type],[data-vgen-nya-compact-reactions="true"] button[data-testid^="reactions-list-button-"]{min-width:12px!important;height:18px!important;padding:1px 3px!important;border-radius:5px!important;font-size:12px!important;box-shadow:0 0 0 1px color-mix(in srgb,currentColor 28%,transparent)!important}
 [data-vgen-nya-compact-reactions="true"] :is(svg,img){width:12px!important;height:12px!important;max-width:12px!important;max-height:12px!important}
 .vgen-nya-quick-replies,.vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-preset-chip[aria-pressed="true"]{border-color:#3b82f6;background:#dbeafe;color:#174b8a}.vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}
@@ -3958,14 +4023,23 @@ ${CHAT_SEARCH_CSS}
   var LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
   var MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
   var CLIENTS_CSS = `
-.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;--nya-clients-accent-a:#4f7cff;--nya-clients-accent-b:#3bdfbc;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients{--nya-shell:#ffffff;--nya-soft:#f3f5f9;--nya-hover:rgba(79,124,255,.11);--nya-text:#252a37;--nya-muted:#737b8e;--nya-border:rgba(32,45,69,.15);--nya-blue:#4f7cff;--nya-green:#20cda7;display:flex;flex-direction:column;margin:4px 8px 8px 6px;border:1px solid var(--nya-border);border-radius:10px;overflow:hidden;background:var(--nya-shell);color:var(--nya-text);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients[data-theme="dark"]{--nya-shell:#272834;--nya-soft:#323440;--nya-hover:rgba(113,149,255,.14);--nya-text:#f2f4f8;--nya-muted:#b7bdca;--nya-border:rgba(255,255,255,.11);--nya-blue:#7195ff;--nya-green:#3bdfbc}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
-.vgen-nya-clients__accent{height:2px;flex:0 0 auto;background:linear-gradient(90deg,var(--nya-clients-accent-a),var(--nya-clients-accent-b))}
-.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:var(--nya-clients-control);color:inherit;cursor:pointer}.vgen-nya-clients__header button:hover{background:#ffffff26}
-.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider);transition:background-color 120ms ease}.vgen-nya-clients__row:hover{background-color:#ffffff14}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
-.vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar:hover{box-shadow:0 0 0 2px var(--nya-clients-accent-b)}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;box-shadow:0 0 0 1px #a1b5b8;pointer-events:none}.vgen-nya-clients__chat-badge svg{width:12px;height:12px}
-.vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;margin-left:10px;color:inherit;text-decoration:none}.vgen-nya-clients__primary{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{opacity:.7;font-size:10px}.vgen-nya-clients__notice{margin-left:5px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700}.vgen-nya-clients__empty{padding:10px;opacity:.75}
-@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__header button:hover{background:#17393f1f}.vgen-nya-clients__row:hover{background-color:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
+.vgen-nya-clients__accent{height:1px;flex:0 0 auto;background:linear-gradient(90deg,var(--nya-blue),var(--nya-green))}
+.vgen-nya-clients[data-collapsed="true"] .vgen-nya-clients__accent,.vgen-nya-clients[data-collapsed="true"] .vgen-nya-clients__list{display:none}
+.vgen-nya-clients__header{display:flex;align-items:center;justify-content:space-between;min-height:20px;height:20px;flex:0 0 20px;padding:1px 3px 1px 8px;border-bottom:1px solid var(--nya-border);background:var(--nya-soft)}
+.vgen-nya-clients__header strong{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700}.vgen-nya-clients__header strong::before{content:"";width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--nya-blue),var(--nya-green))}
+.vgen-nya-clients__header-actions{display:flex;align-items:center;gap:3px}
+.vgen-nya-clients__header button{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:1px solid var(--nya-border);border-radius:5px;background:transparent;color:var(--nya-muted);cursor:pointer}
+.vgen-nya-clients__header button:hover{background:var(--nya-hover);color:var(--nya-text)}
+.vgen-nya-clients__header svg{width:11px;height:11px}
+.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto;padding:3px 3px 0}
+.vgen-nya-clients__row{position:relative;display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);height:var(--vgen-nya-clients-row-height);min-width:0;margin-bottom:3px;border:1px solid var(--nya-border);border-radius:8px;background-color:var(--nya-soft);background-position:center 42%;background-size:cover;overflow:hidden}
+.vgen-nya-clients__row::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,color-mix(in srgb,var(--nya-shell) 94%,transparent) 0%,color-mix(in srgb,var(--nya-shell) 84%,transparent) 62%,color-mix(in srgb,var(--nya-shell) 54%,transparent) 100%);pointer-events:none}
+.vgen-nya-clients__row:hover::before{background:linear-gradient(90deg,color-mix(in srgb,var(--nya-hover) 86%,var(--nya-shell)) 0%,color-mix(in srgb,var(--nya-hover) 66%,transparent) 100%)}
+.vgen-nya-clients__avatar{position:relative;z-index:1;flex:0 0 29px;width:29px;height:29px;align-self:center;margin:0 7px 0 6px;padding:0;border:0;border-radius:8px;background:transparent;cursor:pointer}.vgen-nya-clients__avatar:hover{box-shadow:0 0 0 2px var(--nya-green)}.vgen-nya-clients__avatar:focus-visible{outline:2px solid var(--nya-green);outline-offset:3px}.vgen-nya-clients__avatar:disabled{opacity:.65;cursor:wait}.vgen-nya-clients__avatar img{display:block;width:29px;height:29px;border:1px solid color-mix(in srgb,var(--nya-green) 45%,var(--nya-border));border-radius:8px;background:var(--nya-soft);object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;z-index:3;display:flex;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;background:var(--nya-shell);color:var(--nya-text);box-shadow:0 0 0 1px var(--nya-border);pointer-events:none}.vgen-nya-clients__chat-badge svg{width:12px;height:12px;fill:currentColor;stroke:none}
+.vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;position:relative;z-index:1;color:var(--nya-text);text-decoration:none}.vgen-nya-clients__primary{min-width:0;overflow:hidden;font-size:10.5px;font-weight:700;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{min-width:0;overflow:hidden;color:var(--nya-muted);text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary{font-size:8.5px;line-height:1.2}.vgen-nya-clients__updates{font-size:7.8px;line-height:1.2}.vgen-nya-clients__notice{margin-left:auto;flex:0 0 auto;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700;position:relative;z-index:1}.vgen-nya-clients__empty{padding:18px 8px;color:var(--nya-muted);text-align:center;font-size:11px}
 `;
   var latestDate = (items, fields) => (items || []).reduce((latest, item) => {
     const value = fields.map((field) => item?.[field]).find(Boolean);
@@ -3978,6 +4052,26 @@ ${CHAT_SEARCH_CSS}
     return node;
   };
   var abortError = () => Object.assign(new Error("Frequent Client refresh aborted"), { name: "AbortError" });
+  function parseRGB(value) {
+    const match = String(value || "").match(/rgba?\(([^)]+)\)/);
+    if (!match) return null;
+    const parts = match[1].split(",").map((part) => Number(part.trim()));
+    if (parts.length < 3 || parts.some((part) => Number.isNaN(part))) return null;
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
+  }
+  function backgroundColor(node) {
+    const view = node?.ownerDocument?.defaultView || globalThis;
+    const computed = typeof view.getComputedStyle === "function" ? view.getComputedStyle(node) : null;
+    return computed?.backgroundColor || node?.style?.backgroundColor || "";
+  }
+  function detectDarkSurface(start2) {
+    let node = start2;
+    for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
+      const rgb = parseRGB(backgroundColor(node));
+      if (rgb && rgb.a >= 0.08) return rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722 < 128;
+    }
+    return true;
+  }
   var FrequentClientsRuntime = class {
     constructor({ repository, chat, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, AbortControllerClass = documentObject?.defaultView?.AbortController || globalThis.AbortController, fetchImpl = globalThis.fetch, hostResolver } = {}) {
       this.repository = repository;
@@ -4111,17 +4205,19 @@ ${CHAT_SEARCH_CSS}
       const { clients, clientsSettings } = this.repository.read();
       this.panel.dataset.collapsed = String(clientsSettings.collapsed);
       this.panel.style.cssText = `--vgen-nya-clients-min-height:${clientsSettings.minHeight}px;--vgen-nya-clients-row-height:${clientsSettings.rowHeight}px`;
+      this.panel.dataset.theme = detectDarkSurface(this.host) ? "dark" : "light";
       this.panel.replaceChildren();
       const accent = make6(this.documentObject, "div", "vgen-nya-clients__accent");
       const header = make6(this.documentObject, "header", "vgen-nya-clients__header");
-      const refresh = this.#button("refresh", "", "刷新资料");
-      setButtonIcon(refresh, "refresh", { size: 13 });
-      const collapse = this.#button("collapse", "", clientsSettings.collapsed ? "展开" : "折叠");
-      setButtonIcon(collapse, clientsSettings.collapsed ? "chevronDown" : "chevronUp", { size: 13 });
+      const actions = make6(this.documentObject, "div", "vgen-nya-clients__header-actions");
+      const refresh = this.#button("refresh", "", "刷新全部用户资料");
+      setButtonIcon(refresh, "refresh", { size: 11 });
+      const collapse = this.#button("collapse", "", clientsSettings.collapsed ? "展开常用访问" : "折叠常用访问");
+      setButtonIcon(collapse, clientsSettings.collapsed ? "chevronDown" : "chevronUp", { size: 11 });
+      actions.append(refresh, collapse);
       header.append(
         make6(this.documentObject, "strong", "", "常用访问"),
-        refresh,
-        collapse
+        actions
       );
       this.panel.append(accent, header);
       const list = make6(this.documentObject, "div", "vgen-nya-clients__list");
@@ -4474,19 +4570,21 @@ ${CHAT_SEARCH_CSS}
       if (item.id === "chat") return {
         ...item,
         tabs: [
-          { id: "display", label: "聊天显示", sections: [{ id: "display", title: "Seen / 时间戳 / Reaction / 搜索", render: renderChat(repository, [
+          { id: "display", label: "外观", sections: [{ id: "display", title: "Seen / 时间戳 / Reaction", render: renderChat(repository, [
             ["enabled", "启用 Chat Assistant"],
             ["showSeen", "显示 seen"],
             ["showTimestamps", "显示时间戳"],
             ["showStatusBar", "显示气泡状态长条"],
-            ["compactReactions", "紧凑 Reaction"],
-            ["searchEnabled", "启用聊天全文搜索"]
+            ["compactReactions", "紧凑 Reaction"]
           ]) }] },
-          { id: "read-control", label: "已读控制", sections: [{ id: "read-control", title: "服务器已读边界", render: renderChat(repository, [
+          { id: "read-control", label: "已读", sections: [{ id: "read-control", title: "服务器已读边界", render: renderChat(repository, [
             ["keepUnread", "保持服务器未读，手动释放"],
             ["reactionMarkRead", "Reaction 成功后标记已读"]
           ]) }] },
-          ...textPresetEngine ? [{ id: "quick-reply", label: "快捷回复", sections: [{ id: "quick-reply", title: "Chat Quick Reply", render: renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.chatQuickReply, { contentLabel: "回复内容" }) }] }] : []
+          ...textPresetEngine ? [{ id: "quick-reply", label: "快捷回复", sections: [{ id: "quick-reply", title: "Chat Quick Reply", render: renderTextPresetManager(textPresetEngine, TEXT_PRESET_CONTEXTS.chatQuickReply, { contentLabel: "回复内容" }) }] }] : [],
+          { id: "search", label: "搜索", sections: [{ id: "search", title: "全局聊天搜索", render: renderChat(repository, [
+            ["searchEnabled", "启用聊天全文搜索"]
+          ]) }] }
         ]
       };
       if (item.id === "clients") return {
@@ -4874,20 +4972,31 @@ ${CHAT_SEARCH_CSS}
 
   // src/order/order-text-presets.js
   var NOTE_CONTEXT = TEXT_PRESET_CONTEXTS.privateNote;
+  var DELIVERY_CONTEXT = TEXT_PRESET_CONTEXTS.finalDelivery;
   var NOTE_SELECTOR = 'textarea[aria-label="Note to self"], input[aria-label="Note to self"], textarea[placeholder="Note to self"], input[placeholder="Note to self"]';
+  var DELIVERY_SELECTOR = 'textarea[aria-label*="delivery" i], input[aria-label*="delivery" i], textarea[placeholder*="delivery" i], input[placeholder*="delivery" i], textarea[aria-label*="交付"], input[aria-label*="交付"]';
   var ORDER_PRESET_CSS = ".vgen-nya-order-presets{display:flex;align-items:center;gap:6px;max-width:100%;padding:6px 2px;overflow-x:auto}.vgen-nya-order-presets .vgen-nya-preset-chip{flex:0 0 auto;max-width:220px;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;background:color-mix(in srgb,currentColor 7%,transparent);color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.vgen-nya-order-presets .vgen-nya-preset-chip:hover{background:color-mix(in srgb,currentColor 13%,transparent)}.vgen-nya-order-presets .vgen-nya-preset-empty{font:12px/1.4 system-ui,sans-serif;opacity:.62}";
-  function privateNoteInputs(root) {
-    const inputs = [
-      ...root?.matches?.(NOTE_SELECTOR) ? [root] : [],
-      ...root?.querySelectorAll?.(NOTE_SELECTOR) || []
+  function inputsMatching(root, selector) {
+    return [
+      ...root?.matches?.(selector) ? [root] : [],
+      ...root?.querySelectorAll?.(selector) || []
     ];
+  }
+  function inputsByLabel(root, pattern) {
+    const found = [];
     for (const label of root?.querySelectorAll?.("label") || []) {
-      if (!/\bnote\s+to\s+self\b/i.test(String(label.textContent || ""))) continue;
+      if (!pattern.test(String(label.textContent || ""))) continue;
       const id = label.getAttribute?.("for") || label.htmlFor;
       const input = id && label.ownerDocument?.getElementById?.(id) || label.querySelector?.("textarea, input") || label.parentElement?.querySelector?.("textarea, input");
-      if (input) inputs.push(input);
+      if (input) found.push(input);
     }
-    return [...new Set(inputs)];
+    return found;
+  }
+  function privateNoteInputs(root) {
+    return [.../* @__PURE__ */ new Set([...inputsMatching(root, NOTE_SELECTOR), ...inputsByLabel(root, /\bnote\s+to\s+self\b/i)])];
+  }
+  function deliveryInputs(root) {
+    return [.../* @__PURE__ */ new Set([...inputsMatching(root, DELIVERY_SELECTOR), ...inputsByLabel(root, /\bfinal\s+delivery\b|\b交付\b/i)])];
   }
   var PrivateNoteTarget = class {
     constructor(element2) {
@@ -4897,15 +5006,26 @@ ${CHAT_SEARCH_CSS}
       return this.native.fillText(payload, options);
     }
   };
-  var PrivateNoteSession = class {
-    constructor({ input, engine } = {}) {
+  var FinalDeliveryTarget = class {
+    constructor(element2) {
+      this.native = new NativeTextTarget(element2);
+    }
+    fillFinalDelivery(payload, options) {
+      return this.native.fillText(payload, options);
+    }
+  };
+  var PresetStripSession = class {
+    constructor({ input, engine, context, target, emptyLabel, confirmMessage }) {
       this.input = input;
       this.engine = engine;
+      this.context = context;
+      this.target = target;
+      this.emptyLabel = emptyLabel;
+      this.confirmMessage = confirmMessage;
       this.root = null;
-      this.target = new PrivateNoteTarget(input);
       this.onClick = (event) => this.#click(event);
       this.onInput = () => {
-        this.engine.clearSelection(NOTE_CONTEXT);
+        this.engine.clearSelection(this.context);
         this.render();
       };
     }
@@ -4914,7 +5034,7 @@ ${CHAT_SEARCH_CSS}
       const documentObject = this.input.ownerDocument;
       this.root = documentObject.createElement("div");
       this.root.className = "vgen-nya-order-presets notranslate";
-      this.root.dataset.vgenNyaUi = "private-note-presets";
+      this.root.dataset.vgenNyaUi = this.context === NOTE_CONTEXT ? "private-note-presets" : "final-delivery-presets";
       this.root.translate = false;
       this.root.addEventListener("click", this.onClick);
       this.input.addEventListener("input", this.onInput);
@@ -4925,11 +5045,11 @@ ${CHAT_SEARCH_CSS}
     render() {
       const documentObject = this.input.ownerDocument;
       this.root.replaceChildren();
-      const items = this.engine.list(NOTE_CONTEXT);
+      const items = this.engine.list(this.context);
       if (!items.length) {
         const empty = documentObject.createElement("span");
         empty.className = "vgen-nya-preset-empty";
-        empty.textContent = "暂无 Private Note 预设";
+        empty.textContent = this.emptyLabel;
         this.root.append(empty);
         return;
       }
@@ -4938,19 +5058,19 @@ ${CHAT_SEARCH_CSS}
         button.type = "button";
         button.className = "vgen-nya-preset-chip";
         button.dataset.presetId = preset.id;
-        button.title = this.engine.preview(NOTE_CONTEXT, preset.id, 180);
+        button.title = this.engine.preview(this.context, preset.id, 180);
         button.textContent = preset.name;
-        button.setAttribute("aria-pressed", String(this.engine.selectedId(NOTE_CONTEXT) === String(preset.id)));
+        button.setAttribute("aria-pressed", String(this.engine.selectedId(this.context) === String(preset.id)));
         this.root.append(button);
       }
     }
     async #click(event) {
       const button = event.target?.closest?.("button[data-preset-id]");
       if (!button || !this.root.contains(button)) return;
-      let result = await this.engine.select(NOTE_CONTEXT, button.dataset.presetId, this.target);
+      let result = await this.engine.select(this.context, button.dataset.presetId, this.target);
       if (result.status === "requires-confirmation") {
-        if (this.root.ownerDocument.defaultView?.confirm?.("Note 已有内容。确认替换吗？") !== true) return;
-        result = await this.engine.select(NOTE_CONTEXT, button.dataset.presetId, this.target, { replace: true });
+        if (this.root.ownerDocument.defaultView?.confirm?.(this.confirmMessage) !== true) return;
+        result = await this.engine.select(this.context, button.dataset.presetId, this.target, { replace: true });
       }
       if (result.status === "filled") this.render();
     }
@@ -4961,12 +5081,17 @@ ${CHAT_SEARCH_CSS}
       this.root = null;
     }
   };
+  var TARGETS = Object.freeze({
+    [NOTE_CONTEXT]: { targetFactory: (input) => new PrivateNoteTarget(input), emptyLabel: "暂无 Private Note 预设", confirmMessage: "Note 已有内容。确认替换吗？" },
+    [DELIVERY_CONTEXT]: { targetFactory: (input) => new FinalDeliveryTarget(input), emptyLabel: "暂无 Final Delivery 预设", confirmMessage: "Final Delivery 已有内容。确认替换吗？" }
+  });
   var OrderTextPresetRuntime = class {
-    constructor({ engine, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, noteResolver = privateNoteInputs } = {}) {
+    constructor({ engine, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, noteResolver = privateNoteInputs, deliveryResolver = deliveryInputs } = {}) {
       this.engine = engine;
       this.documentObject = documentObject;
       this.MutationObserverClass = MutationObserverClass;
       this.noteResolver = noteResolver;
+      this.deliveryResolver = deliveryResolver;
       this.sessions = /* @__PURE__ */ new Map();
       this.observer = null;
       this.unsubscribe = null;
@@ -4982,7 +5107,7 @@ ${CHAT_SEARCH_CSS}
       (this.documentObject.head || this.documentObject.body).append(this.style);
       this.scan(this.documentObject);
       this.unsubscribe = this.engine.subscribe(({ context }) => {
-        if (context === NOTE_CONTEXT) for (const session of this.sessions.values()) session.render();
+        for (const session of this.sessions.values()) if (session.context === context) session.render();
       });
       if (this.MutationObserverClass) {
         this.observer = new this.MutationObserverClass((records) => {
@@ -4997,12 +5122,15 @@ ${CHAT_SEARCH_CSS}
     }
     scan(root) {
       let mounted = 0;
-      for (const input of this.noteResolver(root)) {
-        if (this.sessions.has(input) || input.isConnected === false) continue;
-        const session = new PrivateNoteSession({ input, engine: this.engine });
-        session.mount();
-        this.sessions.set(input, session);
-        mounted += 1;
+      for (const { context, resolver } of [{ context: NOTE_CONTEXT, resolver: this.noteResolver }, { context: DELIVERY_CONTEXT, resolver: this.deliveryResolver }]) {
+        for (const input of resolver(root)) {
+          if (this.sessions.has(input) || input.isConnected === false) continue;
+          const config = TARGETS[context];
+          const session = new PresetStripSession({ input, engine: this.engine, context, target: config.targetFactory(input), emptyLabel: config.emptyLabel, confirmMessage: config.confirmMessage });
+          session.mount();
+          this.sessions.set(input, session);
+          mounted += 1;
+        }
       }
       return mounted;
     }
@@ -5648,10 +5776,33 @@ ${CHAT_SEARCH_CSS}
 
   // src/order/order-assistant.js
   var ORDER_ASSISTANT_CSS = `
-.vgen-nya-order-assistant{margin:8px 0;padding:8px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:9px;background:color-mix(in srgb,currentColor 5%,transparent);color:inherit;font:12px/1.45 system-ui,sans-serif;max-width:100%;position:relative}
-.vgen-nya-order-assistant__tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vgen-nya-order-assistant button{border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:7px;padding:5px 8px;background:color-mix(in srgb,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}.vgen-nya-order-assistant button:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
-.vgen-nya-order-assistant__status{opacity:.72}.vgen-nya-order-assistant__warning{border-color:#d97706!important;background:#f59e0b22!important;color:inherit;font-weight:650}.vgen-nya-order-assistant__error{color:#b42318}
-.vgen-nya-order-assistant__popover{margin-top:8px;padding:9px;border:1px solid color-mix(in srgb,currentColor 24%,transparent);border-radius:8px;background:Canvas;color:CanvasText;box-shadow:0 8px 24px #0003;max-height:320px;overflow:auto}.vgen-nya-order-assistant__popover[hidden]{display:none}.vgen-nya-order-assistant__popover-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}.vgen-nya-order-assistant__review{padding:8px 0;border-top:1px solid color-mix(in srgb,currentColor 16%,transparent)}.vgen-nya-order-assistant__review:first-of-type{border-top:0}.vgen-nya-order-assistant__review-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;opacity:.75}.vgen-nya-order-assistant__review-body{margin:5px 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;cursor:text}
+.vgen-nya-client-tools,.vgen-nya-client-tools__actions,.vgen-nya-background{--vtq-bg:#ffffff;--vtq-soft:#f3f6fb;--vtq-hover:#e9eef8;--vtq-text:#252a37;--vtq-muted:#737b8e;--vtq-border:rgba(32,45,69,.16);--vtq-blue:#4f7cff;--vtq-green:#20cda7;--vtq-danger:#d84f67;--vtq-warn:#d68b27;font:12px/1.45 system-ui,-apple-system,sans-serif;color:var(--vtq-text)}
+@media (prefers-color-scheme:dark){.vgen-nya-client-tools,.vgen-nya-client-tools__actions,.vgen-nya-background{--vtq-bg:#30313f;--vtq-soft:#3a3c4a;--vtq-hover:#454857;--vtq-text:#f2f4f8;--vtq-muted:#b7bdca;--vtq-border:rgba(255,255,255,.14);--vtq-blue:#7195ff;--vtq-green:#3bdfbc;--vtq-danger:#ff7286;--vtq-warn:#f2ad50}}
+.vgen-nya-client-tools__actions{position:absolute;top:6px;right:6px;z-index:2;display:grid;gap:4px}
+.vgen-nya-client-tools__action{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--vtq-border);border-radius:7px;background:var(--vtq-soft);color:var(--vtq-muted);cursor:pointer}
+.vgen-nya-client-tools__action:hover{border-color:var(--vtq-blue);color:var(--vtq-blue);background:var(--vtq-hover)}
+.vgen-nya-client-tools__action:focus-visible{outline:2px solid var(--vtq-blue);outline-offset:1px}
+.vgen-nya-background{position:relative;margin-top:6px;width:100%}
+.vgen-nya-background__trigger{display:flex;align-items:center;gap:6px;width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:default}
+.vgen-nya-background__trigger:focus-visible{outline:2px solid var(--vtq-blue);outline-offset:2px;border-radius:4px}
+.vgen-nya-background__bar{flex:1;height:3px;border-radius:999px;background:var(--vtq-border)}
+.vgen-nya-background__bar[data-level="green"]{background:var(--vtq-green)}
+.vgen-nya-background__bar[data-level="yellow"]{background:var(--vtq-warn)}
+.vgen-nya-background__bar[data-level="red"]{background:var(--vtq-danger)}
+.vgen-nya-background__label{font-size:10px;color:var(--vtq-muted);white-space:nowrap}
+.vgen-nya-background__popover{position:absolute;left:0;bottom:calc(100% + 8px);z-index:20;display:none;min-width:240px;max-width:340px;max-height:280px;overflow:auto;padding:8px 10px;border:1px solid var(--vtq-border);border-radius:11px;background:var(--vtq-bg);box-shadow:0 14px 38px rgba(0,0,0,.22)}
+.vgen-nya-background:hover .vgen-nya-background__popover,.vgen-nya-background:focus-within .vgen-nya-background__popover{display:block}
+.vgen-nya-background[data-force-hidden="true"] .vgen-nya-background__popover{display:none!important}
+.vgen-nya-background__review{padding:6px 0;border-top:1px solid var(--vtq-border)}
+.vgen-nya-background__review:first-child{padding-top:0;border-top:0}
+.vgen-nya-background__review-meta{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--vtq-muted)}
+.vgen-nya-background__review-status{font-weight:700}
+.vgen-nya-background__review-status[data-severity="red"]{color:var(--vtq-danger)}
+.vgen-nya-background__review-status[data-severity="yellow"]{color:var(--vtq-warn)}
+.vgen-nya-background__review-body{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;cursor:text;color:var(--vtq-text)}
+.vgen-nya-background__review-copy{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:1px solid var(--vtq-border);border-radius:6px;background:transparent;color:var(--vtq-muted);cursor:pointer}
+.vgen-nya-background__review-copy:hover{border-color:var(--vtq-blue);color:var(--vtq-blue);background:var(--vtq-hover)}
+.vgen-nya-background__empty{margin:0;color:var(--vtq-muted)}
 `;
   function make9(documentObject, tagName, className = "", text = "") {
     const node = documentObject.createElement(tagName);
@@ -5659,18 +5810,44 @@ ${CHAT_SEARCH_CSS}
     node.textContent = text;
     return node;
   }
-  function control(documentObject, text, action) {
-    const button = make9(documentObject, "button", "notranslate", text);
+  function iconButton(documentObject, action, name, title) {
+    const button = make9(documentObject, "button", "vgen-nya-client-tools__action notranslate");
     button.type = "button";
     button.translate = false;
     button.dataset.action = action;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.innerHTML = iconSvg(name, 14);
     return button;
   }
-  function reviewLabel(review) {
-    if (review.wouldRecommend === false) return "不推荐";
-    if (review.wouldRecommend === true) return "推荐";
-    if (Number.isFinite(review.rating)) return `${review.rating}★${review.rating < 5 ? " · 不推荐" : ""}`;
-    return "不推荐";
+  function reviewSeverity(review) {
+    if (review.wouldRecommend === false || Number.isFinite(review.rating) && review.rating <= 3) return "red";
+    if (Number.isFinite(review.rating) && review.rating === 4) return "yellow";
+    return "green";
+  }
+  function reviewStatusLabel(review) {
+    const parts = [];
+    if (Number.isFinite(review.rating)) parts.push(`${review.rating}★`);
+    if (review.wouldRecommend === false) parts.push("不推荐");
+    return parts.join(" · ") || "非满分";
+  }
+  function backgroundLevel(result) {
+    if (!result || result.state === REVIEW_SOURCE_STATES.error) return { level: "muted", label: "背调加载失败" };
+    if (result.state === REVIEW_SOURCE_STATES.unavailable) return { level: "muted", label: "背调不可用" };
+    const reviews = Array.isArray(result.reviews) ? result.reviews : [];
+    if (!reviews.length) return { level: "muted", label: "暂无公开评价" };
+    let yellow = false;
+    for (const review of reviews) {
+      if (review.wouldRecommend === false) return { level: "red", label: "存在不推荐记录" };
+      if (Number.isFinite(review.rating) && review.rating <= 3) return { level: "red", label: "存在低星评价" };
+      if (Number.isFinite(review.rating) && review.rating === 4) yellow = true;
+    }
+    if (yellow) return { level: "yellow", label: "存在非满分评价" };
+    return { level: "green", label: "评价记录正常" };
+  }
+  function backgroundRecords(result) {
+    if (!result || result.state !== REVIEW_SOURCE_STATES.success) return [];
+    return (Array.isArray(result.reviews) ? result.reviews : []).filter((review) => review.wouldRecommend === false || Number.isFinite(review.rating) && review.rating < 5);
   }
   var OrderAssistantSession = class {
     constructor({ panel, identity, settings, adapter, cache, clipboard, AbortControllerClass = globalThis.AbortController } = {}) {
@@ -5681,100 +5858,109 @@ ${CHAT_SEARCH_CSS}
       this.cache = cache;
       this.clipboard = clipboard;
       this.AbortControllerClass = AbortControllerClass;
-      this.root = null;
+      this.host = null;
+      this.actions = null;
+      this.background = null;
       this.popover = null;
+      this.bar = null;
+      this.label = null;
       this.result = null;
       this.abortController = null;
       this.operation = 0;
       this.feedbackTimers = /* @__PURE__ */ new Set();
       this.mounted = false;
+      this.onKeydown = (event) => {
+        if (event.key === "Escape") this.background?.setAttribute("data-force-hidden", "true");
+      };
+      this.onEnter = () => this.background?.removeAttribute("data-force-hidden");
+      this.onFocusIn = () => this.background?.removeAttribute("data-force-hidden");
     }
     mount() {
       if (this.mounted) return false;
       this.mounted = true;
       const documentObject = this.panel.ownerDocument;
-      this.root = make9(documentObject, "section", "vgen-nya-order-assistant");
-      this.root.dataset.vgenNyaUi = "order-assistant";
-      this.root.setAttribute("aria-label", "Client Background");
-      (this.identity.mountTarget || this.panel).append(this.root);
-      this.render();
-      if (this.settings.clientBackground) void this.loadBackground();
+      this.host = this.identity?.mountTarget || this.panel;
+      if (this.host && !this.host.dataset?.vgenNyaClientHost) {
+        const previous = this.host.style?.position || "";
+        this.host.dataset = { ...this.host.dataset || {}, vgenNyaClientHost: previous };
+        this.host.style.position = "relative";
+      }
+      if (this.settings.copyButtons) this.#mountActions(documentObject);
+      if (this.settings.clientBackground) {
+        this.#mountBackground(documentObject);
+        void this.loadBackground();
+      }
       return true;
     }
+    #mountActions(documentObject) {
+      this.actions = make9(documentObject, "div", "vgen-nya-client-tools__actions");
+      this.actions.dataset.vgenNyaUi = "client-copy-actions";
+      const copyId = iconButton(documentObject, "copy-id", "copy", "复制 ID");
+      const copyUrl = iconButton(documentObject, "copy-url", "link", "复制主页链接");
+      copyId.addEventListener("click", () => void this.copy(this.identity.clientId, copyId));
+      copyUrl.addEventListener("click", () => void this.copy(this.identity.profileUrl, copyUrl));
+      this.actions.append(copyId, copyUrl);
+      this.host.append(this.actions);
+    }
+    #mountBackground(documentObject) {
+      this.background = make9(documentObject, "div", "vgen-nya-background");
+      this.background.dataset.vgenNyaUi = "client-background";
+      this.background.setAttribute("aria-label", "Client Background");
+      const trigger = make9(documentObject, "button", "vgen-nya-background__trigger");
+      trigger.type = "button";
+      trigger.setAttribute("aria-haspopup", "true");
+      this.bar = make9(documentObject, "span", "vgen-nya-background__bar");
+      this.bar.setAttribute("aria-hidden", "true");
+      this.label = make9(documentObject, "span", "vgen-nya-background__label notranslate", "背调…");
+      this.label.translate = false;
+      trigger.append(this.bar, this.label);
+      this.background.append(trigger);
+      this.background.addEventListener("keydown", this.onKeydown);
+      this.background.addEventListener("mouseenter", this.onEnter);
+      this.background.addEventListener("focusin", this.onFocusIn);
+      this.host.append(this.background);
+    }
     render() {
-      if (!this.root) return;
-      const documentObject = this.root.ownerDocument;
-      this.root.replaceChildren();
-      const tools = make9(documentObject, "div", "vgen-nya-order-assistant__tools");
-      if (this.settings.copyButtons) {
-        const copyId = control(documentObject, "Copy ID", "copy-id");
-        const copyUrl = control(documentObject, "Copy Profile URL", "copy-url");
-        copyId.addEventListener("click", () => void this.copy(this.identity.clientId, copyId));
-        copyUrl.addEventListener("click", () => void this.copy(this.identity.profileUrl, copyUrl));
-        tools.append(copyId, copyUrl);
+      if (!this.background) return;
+      const documentObject = this.background.ownerDocument;
+      this.background.querySelector?.(".vgen-nya-background__popover")?.remove();
+      this.popover = null;
+      const state = backgroundLevel(this.result);
+      this.bar.dataset.level = state.level;
+      this.label.textContent = state.label;
+      const records = backgroundRecords(this.result);
+      if (state.level === "muted" || !records.length) {
+        if (state.level !== "muted" && !records.length) {
+          const empty = make9(documentObject, "p", "vgen-nya-background__empty", "无需要关注的记录");
+          this.#createPopover(documentObject, [empty]);
+        }
+        return;
       }
-      if (this.settings.clientBackground) this.#renderBackgroundControl(tools);
-      this.root.append(tools);
-      if (this.result && [REVIEW_SOURCE_STATES.success, REVIEW_SOURCE_STATES.empty].includes(this.result.state)) {
-        this.popover = this.#createPopover();
-        this.root.append(this.popover);
-      } else this.popover = null;
+      const nodes = records.map((review) => this.#reviewNode(documentObject, review));
+      this.#createPopover(documentObject, nodes);
     }
-    #renderBackgroundControl(tools) {
-      const documentObject = tools.ownerDocument;
-      if (!this.result) {
-        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "Client Background: loading…"));
-        return;
-      }
-      if (this.result.state === REVIEW_SOURCE_STATES.error) {
-        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status vgen-nya-order-assistant__error notranslate", "公开评价加载失败"));
-        return;
-      }
-      if (this.result.state === REVIEW_SOURCE_STATES.unavailable) {
-        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "公开评价不可用"));
-        return;
-      }
-      if (this.result.state === REVIEW_SOURCE_STATES.empty) {
-        tools.append(make9(documentObject, "span", "vgen-nya-order-assistant__status notranslate", "暂无公开评价"));
-        return;
-      }
-      const negativeCount = Number.isFinite(this.result.negativeCount) ? this.result.negativeCount : this.result.negativeReviews.length;
-      const trigger = control(documentObject, negativeCount ? `存在 ${negativeCount} 条不推荐的公开评价` : `查看公开评价 (${this.result.reviews.length})`, "toggle-reviews");
-      if (negativeCount) trigger.classList.add("vgen-nya-order-assistant__warning");
-      trigger.addEventListener("click", () => {
-        if (this.popover) this.popover.hidden = !this.popover.hidden;
-      });
-      tools.append(trigger);
+    #createPopover(documentObject, children) {
+      const popover = make9(documentObject, "div", "vgen-nya-background__popover");
+      popover.setAttribute("role", "dialog");
+      popover.append(...children);
+      this.background.append(popover);
+      this.popover = popover;
     }
-    #createPopover() {
-      const documentObject = this.root.ownerDocument;
-      const popover = make9(documentObject, "div", "vgen-nya-order-assistant__popover");
-      popover.hidden = true;
-      const header = make9(documentObject, "div", "vgen-nya-order-assistant__popover-head");
-      const title = make9(documentObject, "strong", "notranslate", this.result.negativeReviews.length ? "不推荐的公开评价" : "公开评价");
-      title.translate = false;
-      const close = control(documentObject, "Close", "close-reviews");
-      close.addEventListener("click", () => {
-        popover.hidden = true;
-      });
-      header.append(title, close);
-      popover.append(header);
-      const reviews = this.result.negativeReviews.length ? this.result.negativeReviews : this.result.reviews;
-      for (const review of reviews) {
-        const article = make9(documentObject, "article", "vgen-nya-order-assistant__review");
-        const meta = make9(documentObject, "div", "vgen-nya-order-assistant__review-meta");
-        const label = make9(documentObject, "strong", "notranslate", reviewLabel(review));
-        label.translate = false;
-        meta.append(label);
-        for (const value of [review.reviewer, review.date, review.context].filter(Boolean)) meta.append(make9(documentObject, "span", "", value));
-        const body = make9(documentObject, "p", "vgen-nya-order-assistant__review-body", review.body);
-        body.translate = true;
-        const copy = control(documentObject, "Copy", "copy-review");
-        copy.addEventListener("click", () => void this.copy(review.body, copy));
-        article.append(meta, body, copy);
-        popover.append(article);
-      }
-      return popover;
+    #reviewNode(documentObject, review) {
+      const article = make9(documentObject, "article", "vgen-nya-background__review");
+      const meta = make9(documentObject, "div", "vgen-nya-background__review-meta notranslate");
+      meta.translate = false;
+      const status = make9(documentObject, "strong", "vgen-nya-background__review-status", reviewStatusLabel(review));
+      status.dataset.severity = reviewSeverity(review);
+      meta.append(status);
+      if (review.date) meta.append(make9(documentObject, "span", "", review.date));
+      const body = make9(documentObject, "p", "vgen-nya-background__review-body", review.body);
+      body.translate = true;
+      const copy = iconButton(documentObject, "copy-review", "copy", "复制评价");
+      copy.className = "vgen-nya-background__review-copy notranslate";
+      copy.addEventListener("click", () => void this.copy(review.body, copy));
+      article.append(meta, body, copy);
+      return article;
     }
     // Reuses the already-fetched identity + review context (no re-scrape) to
     // produce the JSON-safe NormalizedOrder a future exporter can consume.
@@ -5783,19 +5969,19 @@ ${CHAT_SEARCH_CSS}
     }
     async copy(value, button) {
       if (!value) return false;
-      const original = button.textContent;
+      const original = button.dataset.copiedLabel;
       try {
         await this.clipboard.writeText(value);
-        button.textContent = "Copied";
+        button.dataset.copied = "true";
         return true;
       } catch {
-        button.textContent = "Copy failed";
+        button.dataset.copied = "failed";
         return false;
       } finally {
-        const expected = button.textContent;
+        const expected = button.dataset.copied;
         const timer = globalThis.setTimeout(() => {
           this.feedbackTimers.delete(timer);
-          if (button.isConnected !== false && button.textContent === expected) button.textContent = original;
+          if (button.isConnected !== false && button.dataset.copied === expected) delete button.dataset.copied;
         }, 1200);
         this.feedbackTimers.add(timer);
       }
@@ -5824,10 +6010,22 @@ ${CHAT_SEARCH_CSS}
       this.abortController = null;
       for (const timer of this.feedbackTimers) globalThis.clearTimeout(timer);
       this.feedbackTimers.clear();
-      this.root?.remove();
-      this.root = null;
+      this.background?.removeEventListener("keydown", this.onKeydown);
+      this.background?.removeEventListener("mouseenter", this.onEnter);
+      this.background?.removeEventListener("focusin", this.onFocusIn);
+      this.actions?.remove();
+      this.actions = null;
+      this.background?.remove();
+      this.background = null;
       this.popover = null;
+      this.bar = null;
+      this.label = null;
       this.result = null;
+      if (this.host?.dataset?.vgenNyaClientHost !== void 0) {
+        this.host.style.position = this.host.dataset.vgenNyaClientHost || "";
+        delete this.host.dataset.vgenNyaClientHost;
+      }
+      this.host = null;
       return true;
     }
   };
@@ -6459,7 +6657,7 @@ ${CHAT_SEARCH_CSS}
     node.textContent = text;
     return node;
   }
-  function control2(documentObject, text, action) {
+  function control(documentObject, text, action) {
     const button = make10(documentObject, "button", "notranslate", text);
     button.type = "button";
     button.translate = false;
@@ -6548,7 +6746,7 @@ ${CHAT_SEARCH_CSS}
       }
       star.value = String(this.starDegree);
       star.dataset.role = "star";
-      const generate = control2(documentObject, snapshot.candidate ? "Regenerate" : "Generate", "generate");
+      const generate = control(documentObject, snapshot.candidate ? "Regenerate" : "Generate", "generate");
       generate.disabled = snapshot.generating;
       generate.addEventListener("click", () => void this.#generate());
       wrap.append(keywords, length, star, generate);
@@ -6579,9 +6777,9 @@ ${CHAT_SEARCH_CSS}
       result.append(this.#block(documentObject, "English（最终提交文本）", snapshot.candidate.english));
       result.append(this.#block(documentObject, "中文对照（仅参考，不写入）", snapshot.candidate.chinese));
       const actions = make10(documentObject, "div", "vgen-nya-review-assistant__actions");
-      const copyEnglish = control2(documentObject, "Copy English", "copy-english");
-      const copyChinese = control2(documentObject, "Copy Chinese", "copy-chinese");
-      const fill = control2(documentObject, "Fill Review", "fill");
+      const copyEnglish = control(documentObject, "Copy English", "copy-english");
+      const copyChinese = control(documentObject, "Copy Chinese", "copy-chinese");
+      const fill = control(documentObject, "Fill Review", "fill");
       copyEnglish.addEventListener("click", () => void this.#copy(this.model.candidate?.english, copyEnglish));
       copyChinese.addEventListener("click", () => void this.#copy(this.model.candidate?.chinese, copyChinese));
       fill.addEventListener("click", () => void this.#fill());
@@ -6655,8 +6853,16 @@ ${CHAT_SEARCH_CSS}
       return true;
     }
   };
+  function defaultReviewSurfaceResolver(root) {
+    if (!root?.querySelectorAll) return [];
+    const candidates = [];
+    for (const node of [root, ...root.querySelectorAll('[class*="review" i], [class*="Review"]') || []]) {
+      if (node.querySelector?.('textarea, [contenteditable="true"], [role="textbox"]')) candidates.push(node);
+    }
+    return [...new Set(candidates)];
+  }
   var ReviewAssistantRuntime = class {
-    constructor({ repository, adapter, history, clipboard, editorAdapter, documentObject = globalThis.document, AbortControllerClass = globalThis.AbortController, sessionIdFactory, now = () => Date.now() } = {}) {
+    constructor({ repository, adapter, history, clipboard, editorAdapter, documentObject = globalThis.document, AbortControllerClass = globalThis.AbortController, sessionIdFactory, now = () => Date.now(), MutationObserverClass = globalThis.MutationObserver, reviewSurfaceResolver = defaultReviewSurfaceResolver } = {}) {
       this.repository = repository;
       this.adapter = adapter || new ReviewProviderAdapter({ fetchImpl: globalThis.fetch?.bind(globalThis), AbortControllerClass });
       this.history = history || new RecentReviewHistory();
@@ -6664,6 +6870,8 @@ ${CHAT_SEARCH_CSS}
       this.editorAdapter = editorAdapter || new ReviewEditorAdapter();
       this.documentObject = documentObject;
       this.AbortControllerClass = AbortControllerClass;
+      this.MutationObserverClass = MutationObserverClass;
+      this.reviewSurfaceResolver = reviewSurfaceResolver;
       this.now = now;
       this.sequence = 0;
       this.sessionIdFactory = sessionIdFactory || (() => {
@@ -6671,12 +6879,14 @@ ${CHAT_SEARCH_CSS}
         return `review-${this.sequence}`;
       });
       this.current = null;
+      this.activeRoot = null;
+      this.observer = null;
       this.style = null;
       this.mounted = false;
     }
-    // REVIEW-LIVE-01 is blocked: the real VGen review surface is not verified,
-    // so this runtime installs no observers or timers. openSurface is the only
-    // entry point and is exercised by tests/future live integration.
+    // REVIEW-LIVE-01 is still blocked (no verified review surface), but the
+    // lifecycle is wired: a scoped childList observer auto-opens the session
+    // when a review surface appears and cleans up when it is removed.
     mount() {
       if (this.mounted || !this.documentObject?.body) return false;
       this.mounted = true;
@@ -6684,7 +6894,27 @@ ${CHAT_SEARCH_CSS}
       this.style.dataset.vgenNyaUi = "review-assistant-style";
       this.style.textContent = REVIEW_ASSISTANT_CSS;
       (this.documentObject.head || this.documentObject.body).append(this.style);
+      this.#scan(this.documentObject);
+      if (this.MutationObserverClass) {
+        this.observer = new this.MutationObserverClass((records) => {
+          for (const record of records) {
+            for (const node of record.addedNodes || []) if (!this.current) this.#consider(node);
+            for (const node of record.removedNodes || []) {
+              if (node === this.activeRoot || node.contains?.(this.activeRoot) || this.activeRoot?.isConnected === false) this.closeSurface();
+            }
+          }
+        });
+        this.observer.observe(this.documentObject.body, { childList: true });
+      }
       return true;
+    }
+    #scan(root) {
+      for (const candidate of this.reviewSurfaceResolver(root)) {
+        if (!this.current && this.openSurface({ root: candidate })) return;
+      }
+    }
+    #consider(root) {
+      this.#scan(root);
     }
     openSurface(surface) {
       this.#release();
@@ -6703,9 +6933,11 @@ ${CHAT_SEARCH_CSS}
       });
       if (!session.mount()) return false;
       this.current = { surface: { editor, mountTarget }, session };
+      this.activeRoot = surface?.root || mountTarget;
       return true;
     }
     closeSurface() {
+      this.activeRoot = null;
       this.#release();
     }
     #release() {
@@ -6716,7 +6948,10 @@ ${CHAT_SEARCH_CSS}
     }
     unmount() {
       if (!this.mounted) return false;
+      this.observer?.disconnect();
+      this.observer = null;
       this.#release();
+      this.activeRoot = null;
       this.style?.remove();
       this.style = null;
       this.mounted = false;
@@ -7023,6 +7258,7 @@ ${CHAT_SEARCH_CSS}
     core.mountFrequentClients();
     core.mountOrderAssistant();
     core.mountReviewAssistant();
+    core.mountOrderTextPresets();
   }
   start();
 })();

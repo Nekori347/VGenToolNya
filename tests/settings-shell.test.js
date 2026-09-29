@@ -111,7 +111,7 @@ test('Iteration 4 L2: Settings keeps three levels while adding Quick Reply and t
 
     core.settingsShell.selectNavigation('chat');
     let tabs = buttons(core.settingsShell.element).filter((button) => button.dataset.action === 'tab').map((button) => button.textContent);
-    assert.deepEqual(tabs, ['聊天显示', '已读控制', '快捷回复']);
+    assert.deepEqual(tabs, ['外观', '已读', '快捷回复', '搜索']);
     core.settingsShell.selectTab('quick-reply');
     assert.equal(core.settingsShell.toggleSection('chat:quick-reply:quick-reply'), true);
 

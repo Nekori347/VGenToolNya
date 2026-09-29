@@ -155,7 +155,7 @@ test('Iteration 3 L2: Chat enable/disable controls DOM observer and minimal read
     assert.equal(calls.at(-1), false);
     repo.writeChatSettings({ enabled: true, keepUnread: true });
     assert.ok(runtime.portalObserver);
-    assert.match(runtime.style.textContent, /\.vgen-nya-state-bar\{position:static!important/);
+    assert.match(runtime.style.textContent, /\.vgen-nya-status-row\{display:flex!important/);
     assert.equal(calls.at(-1), true);
     repo.writeChatSettings({ enabled: false, keepUnread: true });
     assert.equal(runtime.portalObserver, null);
@@ -302,20 +302,24 @@ test('Iteration 3 L1: status, timestamp, seen and compact reaction render once w
     assert.equal(group.querySelectorAll('.vgen-nya-chat-meta').length, 1);
     assert.equal(group.querySelector('.vgen-nya-chat-seen').textContent, '[seen]');
     assert.ok(group.querySelector('.vgen-nya-chat-time').textContent);
-    assert.equal(bubble.querySelectorAll('.vgen-nya-state-bar').length, 1);
-    assert.equal(bubble.querySelector('.vgen-nya-state-bar').dataset.direction, 'outgoing');
-    assert.equal(bubble.querySelector('.vgen-nya-state-bar').dataset.status, 'read');
-    assert.equal(bubble.querySelector('.vgen-nya-state-bar').parentElement, bubble);
-    assert.equal(bubble.querySelector('.vgen-nya-read-marker').textContent, '✓');
+    const statusRow = group.querySelector('.vgen-nya-status-row');
+    assert.ok(statusRow);
+    assert.equal(statusRow.dataset.direction, 'outgoing');
+    const stateBar = statusRow.querySelector('.vgen-nya-state-bar');
+    const marker = statusRow.querySelector('.vgen-nya-read-marker');
+    assert.equal(stateBar.dataset.status, 'read');
+    // line and marker share one flex row (same horizontal axis)
+    assert.equal(stateBar.parentElement, statusRow);
+    assert.equal(marker.parentElement, statusRow);
+    assert.equal(marker.textContent, '✓');
     assert.equal(reactions.dataset.vgenNyaCompactReactions, 'true');
     assert.equal(reactions.parentElement, group);
 
     adapter.refresh({ settings: { ...settings, showStatusBar: false }, readGate: new ReadGate({ enabled: true }) });
-    assert.equal(bubble.querySelector('.vgen-nya-state-bar'), null);
-    assert.equal(bubble.querySelector('.vgen-nya-read-marker').textContent, '✓');
+    assert.equal(group.querySelector('.vgen-nya-status-row'), null);
     assert.equal(group.querySelector('.vgen-nya-chat-seen').textContent, '[seen]');
     adapter.cleanup();
-    assert.equal(bubble.querySelector('.vgen-nya-read-marker'), null);
+    assert.equal(group.querySelector('.vgen-nya-status-row'), null);
     assert.equal(group.querySelector('.vgen-nya-chat-meta'), null);
 });
 
@@ -343,17 +347,17 @@ test('Iteration 3 L1: outgoing unread status is passive while incoming unread ke
         readGate: new ReadGate({ enabled: true }),
         onManualRead: () => { releases += 1; },
     });
-    const outgoingMarker = outgoing.bubble.querySelector('.vgen-nya-read-marker');
+    const outgoingMarker = outgoing.element.querySelector('.vgen-nya-read-marker');
     assert.equal(outgoingMarker.textContent, '●');
     assert.equal(outgoingMarker.dataset.manual, 'false');
     outgoingMarker.click();
     assert.equal(releases, 0);
-    const incomingMarker = incoming.bubble.querySelector('.vgen-nya-read-marker');
+    const incomingMarker = incoming.element.querySelector('.vgen-nya-read-marker');
     assert.equal(incomingMarker.textContent, '●');
     assert.equal(incomingMarker.dataset.manual, 'true');
     incomingMarker.click();
     assert.equal(releases, 1);
-    assert.equal(incoming.bubble.querySelector('.vgen-nya-state-bar').dataset.direction, 'incoming');
+    assert.equal(incoming.element.querySelector('.vgen-nya-status-row').dataset.direction, 'incoming');
 });
 
 test('Iteration 3 L1: Quick Chat adapter selects an existing native Stream conversation without sending', async () => {
@@ -569,7 +573,7 @@ test('Iteration 3 L2: Frequent Clients aborts pending profile refresh before unm
 
 test('Iteration 3 L2: Settings IA keeps Chat, Frequent Clients and Diagnostics responsibilities separate', () => {
     const navigation = createChatSettingsNavigation(repository(), { start() {}, stop() {}, snapshot() {}, active: false, events: [] }, SETTINGS_NAVIGATION);
-    assert.deepEqual(navigation.find((item) => item.id === 'chat').tabs.map((tab) => tab.id), ['display', 'read-control']);
+    assert.deepEqual(navigation.find((item) => item.id === 'chat').tabs.map((tab) => tab.id), ['display', 'read-control', 'search']);
     assert.deepEqual(navigation.find((item) => item.id === 'clients').tabs.map((tab) => tab.id), ['panel', 'management']);
     assert.deepEqual(navigation.find((item) => item.id === 'developer').tabs.map((tab) => tab.id), ['diagnostics']);
 });
