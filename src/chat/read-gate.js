@@ -58,6 +58,18 @@ export class ReadGate {
         if (current?.id && current.id !== message.id) this.replyBoundaries.delete(cid);
     }
 
+    // Whether the latest message of a channel is still being held unread by the
+    // gate (an intercepted read request or a not-yet-consumed manual permit).
+    // Used by the display layer so an incoming message that the gate keeps
+    // unread never renders as read.
+    isHeldUnread(cid, messageId) {
+        if (!this.enabled || !cid || messageId == null) return false;
+        const latest = this.latest.get(cid);
+        if (!latest || latest.id !== String(messageId)) return false;
+        const pending = (this.pending.get(cid) || []).length > 0;
+        return pending || this.manualPermits.has(cid);
+    }
+
     interceptRead({ cid, body, perform, cancel }) {
         if (!this.enabled || !cid) return perform('native');
         const requestedId = parseJSON(body)?.message_id;

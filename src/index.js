@@ -13,6 +13,7 @@ import { ReadGate } from './chat/read-gate.js';
 import { ChatNetworkHooks } from './chat/network-hooks.js';
 import { ChatDiagnostics } from './chat/diagnostics.js';
 import { ChatAssistantRuntime, ChatService } from './chat/chat-assistant.js';
+import { GlobalSearchRuntime } from './chat/global-search-runtime.js';
 import { FrequentClientsRuntime } from './clients/frequent-clients.js';
 import { createChatSettingsNavigation } from './settings/chat-settings.js';
 import { createOrderSettingsNavigation } from './settings/order-settings.js';
@@ -58,6 +59,7 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
     const uploadAssistant = new UploadAssistantRuntime({ repository: uploadRepository, textPresetEngine, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver });
     const chat = new ChatService({ documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver });
     const chatAssistant = new ChatAssistantRuntime({ repository: chatRepository, readGate, networkHooks, textPresetEngine, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver });
+    const globalSearch = new GlobalSearchRuntime({ documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver, chat });
     const frequentClients = new FrequentClientsRuntime({ repository: chatRepository, chat, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver, fetchImpl: pageWindow.fetch?.bind(pageWindow) });
     const orderTextPresets = new OrderTextPresetRuntime({ engine: textPresetEngine, documentObject: pageWindow.document, MutationObserverClass: pageWindow.MutationObserver });
     const clipboard = new Clipboard({ gmSetClipboard: gm.GM_setClipboard });
@@ -69,6 +71,7 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
     modules.register('settings', settingsShell);
     modules.register('upload-assistant', uploadAssistant);
     modules.register('chat-assistant', chatAssistant);
+    modules.register('global-search', globalSearch);
     modules.register('frequent-clients', frequentClients);
     modules.register('order-text-presets', orderTextPresets);
     modules.register('order-assistant', orderAssistant);
@@ -85,6 +88,7 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
         textPresetEngine,
         textPresetStore,
         chatAssistant,
+        globalSearch,
         frequentClients,
         orderTextPresets,
         orderAssistant,
@@ -120,6 +124,13 @@ export function createVGenNyaCore({ storageDriver, gm = globalThis, pageWindow =
         },
         unmountChatAssistant() {
             modules.unmount('chat-assistant');
+        },
+        mountGlobalSearch() {
+            modules.mount('global-search');
+            modules.activate('global-search');
+        },
+        unmountGlobalSearch() {
+            modules.unmount('global-search');
         },
         mountFrequentClients() {
             modules.mount('frequent-clients');

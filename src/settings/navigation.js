@@ -27,7 +27,7 @@ export const SETTINGS_NAVIGATION = Object.freeze([
     },
     { id: 'orders', label: '订单助手', tabs: [{ id: 'overview', label: '概览', sections: [plannedSection('订单助手')] }] },
     { id: 'chat', label: '聊天助手', tabs: [{ id: 'overview', label: '概览', sections: [plannedSection('聊天助手')] }] },
-    { id: 'reviews', label: '评价助手', tabs: [{ id: 'overview', label: '概览', sections: [plannedSection('评价助手')] }] },
+    { id: 'reviews', label: '评价生成', tabs: [{ id: 'overview', label: '概览', sections: [plannedSection('评价生成')] }] },
     { id: 'clients', label: '常用访问', tabs: [{ id: 'overview', label: '概览', sections: [plannedSection('常用访问')] }] },
     { id: 'developer', label: '开发者', tabs: [{ id: 'overview', label: '概览', sections: [plannedSection('Diagnostics')] }] },
 ]);

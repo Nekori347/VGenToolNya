@@ -88,7 +88,7 @@ export class ChatAssistantSession {
         this.observer = null;
         this.adapter.cleanup?.();
         this.quickReplies?.cleanup();
-        this.search.unmount();
+        this.search.dispose?.();
         this.cid = null;
         this.mounted = false;
         return true;

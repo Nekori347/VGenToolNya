@@ -54,20 +54,25 @@ function handleFromHref(href, baseUrl = 'https://vgen.co/') {
 
 export function resolvePublicClientIdentity(panel) {
     if (!panel?.querySelectorAll) return null;
-    for (const anchor of panel.querySelectorAll('a[href]')) {
-        const href = anchor.href || anchor.getAttribute?.('href') || '';
-        const handle = handleFromHref(href, panel.ownerDocument?.location?.href);
-        if (!handle) continue;
+    const anchors = [...panel.querySelectorAll('a[href]')];
+    const handleOf = (anchor) => handleFromHref(anchor.href || anchor.getAttribute?.('href') || '', panel.ownerDocument?.location?.href);
+    const preferred = anchors.find((anchor) => {
+        const handle = handleOf(anchor);
+        if (!handle) return false;
         const label = compact(anchor.textContent);
-        if (!label.startsWith('@') && !anchor.closest?.('[data-client], [class*="Client"], [class*="client"]')) continue;
-        return {
-            clientId: `@${handle}`,
-            handle,
-            profileUrl: canonicalProfileUrl(handle),
-            mountTarget: anchor.closest?.('[data-client], [class*="Client"], [class*="client"]') || anchor.parentElement || panel,
-        };
-    }
-    return null;
+        return label.startsWith('@') || Boolean(anchor.closest?.('[data-client], [class*="Client"], [class*="client"]'));
+    });
+    // Fall back to any anchor resolving to a valid public handle so the copy
+    // icons still mount even when the native card's class names change.
+    const anchor = preferred || anchors.find((item) => handleOf(item));
+    if (!anchor) return null;
+    const handle = handleOf(anchor);
+    return {
+        clientId: `@${handle}`,
+        handle,
+        profileUrl: canonicalProfileUrl(handle),
+        mountTarget: anchor.closest?.('[data-client], [class*="Client"], [class*="client"]') || anchor.parentElement || panel,
+    };
 }
 
 function pickText(value, names) {

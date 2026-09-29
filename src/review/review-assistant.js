@@ -37,14 +37,14 @@ function control(documentObject, text, action) {
 }
 
 const ERROR_LABELS = Object.freeze({
-    PROVIDER_NOT_CONFIGURED: 'Provider 未配置',
+    PROVIDER_NOT_CONFIGURED: '接口未配置',
     AUTH_ERROR: '认证失败（401 / 403）',
     RATE_LIMIT: '请求过于频繁（429），请稍后重试',
-    HTTP_ERROR: 'Provider 服务错误',
+    HTTP_ERROR: '接口服务错误',
     NETWORK_ERROR: '网络错误',
     TIMEOUT: '请求超时',
-    INVALID_JSON: 'Provider 输出不是有效 JSON',
-    MALFORMED_OUTPUT: 'Provider 输出格式不正确',
+    INVALID_JSON: '接口输出不是有效 JSON',
+    MALFORMED_OUTPUT: '接口输出格式不正确',
     ABORTED: '生成已取消',
 });
 
@@ -80,7 +80,7 @@ export class ReviewAssistantSession {
         this.mounted = true;
         this.root = make(documentObject, 'section', 'vgen-nya-review-assistant');
         this.root.dataset.vgenNyaUi = 'review-assistant';
-        this.root.setAttribute('aria-label', 'Review Assistant');
+        this.root.setAttribute('aria-label', '评价生成');
         const mountPoint = this.surface.mountTarget || this.surface.editor?.element?.parentElement || documentObject.body;
         mountPoint.append(this.root);
         this.#render();
@@ -146,7 +146,7 @@ export class ReviewAssistantSession {
         }
         const provider = this.providerRepository.read().provider;
         if (!isReviewProviderConfigured(provider)) {
-            status.textContent = 'Provider not configured — 请在「设置 → 评价助手 → Provider」中配置';
+            status.textContent = '接口未配置 — 请在「设置 → 评价生成 → 接口」中配置';
             status.dataset.error = 'true';
             return status;
         }

@@ -32,13 +32,28 @@ function channelCid(channel) {
     return channel?.cid || (channel?.type && channel?.id ? `${channel.type}:${channel.id}` : null);
 }
 
+// Resolves the Stream Chat client from any .str-chat root (messages list /
+// modal) without requiring an active channel. Used by global search to
+// enumerate conversations.
+export function streamClientFromDocument(documentObject) {
+    for (const root of documentObject?.querySelectorAll?.('.str-chat, [class*="str-chat"]') || []) {
+        const client = reactValue(root, 'client');
+        if (client && typeof client.queryChannels === 'function') return client;
+    }
+    return null;
+}
+
+export function streamSelfId(client) {
+    return String(client?.userID || client?.user?.id || '').trim();
+}
+
 function messageTime(message) {
     const value = message?.created_at || message?.createdAt;
     const time = Date.parse(value || '');
     return Number.isFinite(time) ? time : null;
 }
 
-function readStatus(channel, message) {
+function readStatus(channel, message, { heldUnread = false } = {}) {
     const client = channel?.getClient?.() || channel?._client || channel?.client;
     const selfId = client?.userID || client?.user?.id;
     const senderId = message?.user?.id || message?.user_id;
@@ -51,6 +66,9 @@ function readStatus(channel, message) {
         return Number.isFinite(lastRead) && lastRead >= createdAt;
     };
     if (senderId !== selfId) {
+        // The ReadGate holds the newest incoming message unread even when the
+        // SDK already advanced its local read state.
+        if (heldUnread) return { direction: 'incoming', status: 'unread' };
         const own = reads.find((entry) => (entry.user?.id || entry.user_id) === selfId);
         return { direction: 'incoming', status: reached(own) ? 'read' : 'unread' };
     }
@@ -178,9 +196,9 @@ export class StreamChatAdapter {
     // watch is disabled so no realtime subscription is created.
     async listChannels({ signal, limit = 50 } = {}) {
         const channel = this.findChannel();
-        const client = channel?.getClient?.() || channel?._client || channel?.client;
+        const client = channel?.getClient?.() || channel?._client || channel?.client || streamClientFromDocument(this.documentObject);
         if (typeof client?.queryChannels !== 'function') return [];
-        const selfId = String(client.userID || client.user?.id || '').trim();
+        const selfId = streamSelfId(client);
         const filter = selfId ? { type: 'messaging', members: { $in: [selfId] } } : { type: 'messaging' };
         try {
             const channels = await client.queryChannels(filter, [{ last_message_at: -1 }], { watch: false, state: true, limit });
@@ -209,13 +227,19 @@ export class StreamChatAdapter {
         const channel = this.findChannel();
         const cid = channelCid(channel);
         if (!channel || !cid) return { cid: null, messages: 0 };
-        const messages = this.surface.querySelectorAll?.(MESSAGE_SELECTOR) || [];
+        const elements = [...(this.surface.querySelectorAll?.(MESSAGE_SELECTOR) || [])].slice(-500);
+        // First observe every message so `latest` resolves to the newest before
+        // decoration decides the held-unread boundary.
+        for (const element of elements) {
+            const message = messageFromElement(element, channel);
+            if (message) readGate?.observeLatest(cid, message);
+        }
         let decorated = 0;
-        for (const element of [...messages].slice(-500)) {
+        for (const element of elements) {
             const message = messageFromElement(element, channel);
             if (!message) continue;
-            readGate?.observeLatest(cid, message);
-            this.#decorateMessage(element, channel, message, settings, () => onManualRead?.(cid, channel));
+            const heldUnread = readGate?.isHeldUnread?.(cid, message.id) ?? false;
+            this.#decorateMessage(element, channel, message, settings, () => onManualRead?.(cid, channel), heldUnread);
             decorated += 1;
         }
         this.#decorateReactions(settings);
@@ -223,10 +247,10 @@ export class StreamChatAdapter {
         return { cid, messages: decorated };
     }
 
-    #decorateMessage(element, channel, message, settings, manualRead) {
+    #decorateMessage(element, channel, message, settings, manualRead, heldUnread = false) {
         const bubble = element.querySelector?.('.str-chat__message-bubble') || element;
         const group = bubble.closest?.('.str-chat__message-bubble-group') || bubble.parentElement || element;
-        const state = readStatus(channel, message);
+        const state = readStatus(channel, message, { heldUnread });
         const signature = JSON.stringify([message.id, message.created_at, state.direction, state.status, settings.keepUnread, settings.showSeen, settings.showTimestamps, settings.showStatusBar]);
         if (element.dataset.vgenNyaChatSignature === signature) return;
         element.dataset.vgenNyaChatSignature = signature;
@@ -236,7 +260,7 @@ export class StreamChatAdapter {
         // axis. It lives in normal flow below the bubble so it follows any
         // translated-content height change instead of being pinned to a
         // bubble corner.
-        const hasStatus = state.status === 'unread' || state.status === 'read';
+        const hasStatus = state.status === 'unread' || state.status === 'read' || state.status === 'pending';
         let statusRow = group.querySelector?.(':scope > .vgen-nya-status-row');
         if (settings.showStatusBar !== false && hasStatus && !statusRow) {
             statusRow = this.documentObject.createElement('div');
@@ -269,9 +293,9 @@ export class StreamChatAdapter {
                 marker.dataset.status = state.status;
                 marker.dataset.direction = state.direction;
                 marker.dataset.manual = String(canManualRead);
-                marker.textContent = state.status === 'unread' ? '●' : '✓';
+                marker.textContent = state.status === 'read' ? '✓' : '●';
                 marker.disabled = !canManualRead;
-                marker.title = canManualRead ? '未读 · 点击标记为已读' : state.direction === 'outgoing' ? (state.status === 'read' ? '对方已读' : '对方未读') : (state.status === 'read' ? '我已读' : '未读');
+                marker.title = canManualRead ? '未读 · 点击标记为已读' : state.direction === 'outgoing' ? (state.status === 'read' ? '对方已读' : '对方未读') : (state.status === 'read' ? '我已读' : state.status === 'pending' ? '状态未知' : '未读');
             }
         } else if (statusRow) {
             statusRow.remove();

@@ -295,77 +295,65 @@ test('Iteration 7 L1: global search aggregates matching messages across channels
     assert.equal(results[1].channel.username, 'bob');
 });
 
-function makeController({ channels = [], documentObject = new MiniDocument() } = {}) {
-    const listHost = documentObject.createElement('div');
-    listHost.className = 'str-chat__channel-list';
-    documentObject.body.append(listHost);
+function makeController({ channel, documentObject = new MiniDocument() } = {}) {
     const surface = documentObject.createElement('div');
     surface.className = 'str-chat__channel';
     documentObject.body.append(surface);
-    const adapter = { findChannel: () => channels[0] || null, listChannels: async () => channels, selfId: () => 'self', cleanup: () => {} };
+    const adapter = { findChannel: () => channel || null, refresh: () => ({ cid: channel?.cid || null, messages: 0 }), cleanup: () => {} };
     const controller = new ChatSearchController({
         surface, adapter, documentObject,
         historyAdapterFactory: (ch) => new ChatHistoryAdapter({ channel: ch }),
         debounceMs: 0,
+        sidebarResolver: () => surface,
     });
     controller.mount();
-    return { controller, surface, documentObject, adapter, listHost };
+    return { controller, surface, documentObject, adapter };
 }
 
 function snippets(root) {
     return descendants(root).filter((node) => node.className === 'vgen-nya-chat-search__snippet').map((node) => node.textContent);
 }
 
-test('Iteration 7 L2 A: global search renders avatar, name, id, snippet and time', async () => {
+test('Iteration 7 L2 A: current-conversation search shows time + snippet and locates on click', async () => {
     const channel = {
         cid: 'messaging:c',
-        state: { members: [member('self'), member('uA', { name: 'Alice', username: 'alice' })], messages: [] },
+        state: { messages: [] },
         query: async ({ messages }) => (messages.id_lt === undefined ? { messages: [msg('m1', 'Needle target')] } : { messages: [] }),
     };
-    const { controller } = makeController({ channels: [channel] });
+    const { controller, surface } = makeController({ channel });
     controller.input.value = 'needle';
     controller.input.dispatchEvent(new Event('input'));
     await flush();
     await flush();
-    assert.deepEqual(snippets(controller.root), ['Needle target']);
-    const name = descendants(controller.root).find((node) => node.className === 'vgen-nya-chat-search__name');
-    assert.equal(name.textContent, 'Alice');
-    const id = descendants(controller.root).find((node) => node.className === 'vgen-nya-chat-search__id');
-    assert.equal(id.textContent, '@alice');
+    const results = descendants(controller.root).filter((node) => node.className === 'vgen-nya-chat-search__result');
+    assert.equal(results.length, 1);
+    const snippet = descendants(results[0]).find((node) => node.className === 'vgen-nya-chat-search__snippet');
+    assert.equal(snippet.textContent, 'Needle target');
+    results[0].click();
+    await flush();
     controller.unmount();
 });
 
-test('Iteration 7 L2 B: a stale global search never overwrites a newer query', async () => {
-    const resolvers = [];
-    const hanging = { cid: 'messaging:a', state: { members: [member('self'), member('uA', { name: 'Alice', username: 'alice' })], messages: [] }, query: async () => new Promise((resolve) => resolvers.push(resolve)) };
-    const ready = { cid: 'messaging:b', state: { members: [member('self'), member('uB', { name: 'Bob', username: 'bob' })], messages: [] }, query: async () => ({ messages: [msg('b1', 'B result')] }) };
-    const { controller, adapter } = makeController({ channels: [hanging] });
-    controller.input.value = 'stale';
-    controller.input.dispatchEvent(new Event('input'));
-    await flush();
-    adapter.listChannels = async () => [ready];
-    controller.input.value = 'result';
+test('Iteration 7 L2 B: clearing the query collapses the results list', async () => {
+    const channel = { cid: 'messaging:c', state: { messages: [] }, query: async () => ({ messages: [msg('m1', 'Needle')] }) };
+    const { controller } = makeController({ channel });
+    controller.input.value = 'needle';
     controller.input.dispatchEvent(new Event('input'));
     await flush();
     await flush();
-    resolvers.forEach((resolve) => resolve({ messages: [msg('a1', 'A result')] }));
+    assert.equal(descendants(controller.root).filter((node) => node.className === 'vgen-nya-chat-search__result').length, 1);
+    controller.input.value = '';
+    controller.input.dispatchEvent(new Event('input'));
     await flush();
-    assert.deepEqual(snippets(controller.root), ['B result']);
+    assert.equal(descendants(controller.root).filter((node) => node.className === 'vgen-nya-chat-search__result').length, 0);
     controller.unmount();
 });
 
 test('Iteration 7 L2 D: close cleans up and reopen starts with a clean single UI', () => {
     const documentObject = new MiniDocument();
-    const listHost = documentObject.createElement('div');
-    listHost.className = 'str-chat__channel-list';
-    documentObject.body.append(listHost);
-    const surface = documentObject.createElement('div');
-    surface.className = 'str-chat__channel';
-    documentObject.body.append(surface);
-    const adapter = { findChannel: () => null, listChannels: async () => [], selfId: () => 'self', cleanup() {} };
-    const controller = new ChatSearchController({ surface, adapter, documentObject, debounceMs: 0 });
-    const count = () => descendants(documentObject.body).filter((node) => node.dataset.vgenNyaUi === 'chat-search').length;
-    controller.mount();
+    const channel = { cid: 'messaging:c', state: { messages: [] }, query: async () => ({ messages: [] }) };
+    const { controller } = makeController({ channel, documentObject });
+    const count = () => descendants(documentObject.body).filter((node) => node.dataset.vgenNyaUi === 'current-chat-search').length;
     assert.equal(count(), 1);
     controller.unmount();
     assert.equal(count(), 0);
@@ -381,7 +369,7 @@ test('Iteration 7 L3: idle controller performs no history fetch', async () => {
         state: { messages: [] },
         query: async () => { calls.push(1); return { messages: [] }; },
     };
-    makeController({ channels: [channel] });
+    makeController({ channel });
     await flush();
     assert.equal(calls.length, 0); // mounting does not fetch
 });

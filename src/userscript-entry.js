@@ -63,6 +63,7 @@ function start() {
     GM_registerMenuCommand(`VGenToolNya ${APP_VERSION}：设置`, openSettings);
     core.mountUploadAssistant();
     core.mountChatAssistant();
+    core.mountGlobalSearch();
     core.mountFrequentClients();
     core.mountOrderAssistant();
     core.mountReviewAssistant();

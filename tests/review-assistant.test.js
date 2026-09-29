@@ -529,7 +529,7 @@ test('Iteration 6 L2: without a configured provider the widget shows a clear sta
     await flush();
     assert.equal(calls.length, 0);
     const status = descendants(runtime.current.session.root).find((node) => node.className.includes('vgen-nya-review-assistant__status'));
-    assert.match(status.textContent, /Provider not configured/);
+    assert.match(status.textContent, /接口未配置/);
     runtime.closeSurface();
 });
 
@@ -540,7 +540,7 @@ test('Iteration 6 L2: Review Assistant Settings keeps three levels with Provider
     core.mountSettings(host);
     core.settingsShell.selectNavigation('reviews');
     const tabs = buttons(core.settingsShell.element).filter((button) => button.dataset.action === 'tab').map((button) => button.textContent);
-    assert.deepEqual(tabs, ['生成', 'Provider']);
+    assert.deepEqual(tabs, ['生成', '接口']);
     core.settingsShell.selectTab('provider');
     assert.equal(core.settingsShell.toggleSection('reviews:provider:provider-config'), true);
     core.dispose();

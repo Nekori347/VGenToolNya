@@ -50,7 +50,7 @@ function renderProvider(repository) {
             const provider = repository.read().provider;
             const configured = isReviewProviderConfigured(provider);
             const status = make(documentObject, 'p', { className: 'vgen-nya-settings__hint' },
-                configured ? `已配置 Provider（API Key ${maskApiKey(provider.apiKey)}）` : '尚未配置 Provider。');
+                configured ? `已配置接口（API Key ${maskApiKey(provider.apiKey)}）` : '尚未配置接口。');
             const baseUrl = make(documentObject, 'input', { type: 'text', value: provider.baseUrl, placeholder: 'https://api.openai.com/v1', dataset: { setting: 'baseUrl' }, 'aria-label': 'Base URL' });
             const apiKey = make(documentObject, 'input', { type: 'password', value: provider.apiKey, placeholder: 'sk-…', dataset: { setting: 'apiKey' }, autocomplete: 'off', 'aria-label': 'API Key' });
             const model = make(documentObject, 'input', { type: 'text', value: provider.model, placeholder: 'gpt-4o-mini', dataset: { setting: 'model' }, 'aria-label': 'Model' });
@@ -89,8 +89,8 @@ export function createReviewSettingsNavigation({ repository }, baseNavigation) {
             { id: 'generate', label: '生成', sections: [
                 { id: 'generation', title: '生成参数', description: '关键词由业务页面按 session 输入；这里只设置默认长度与星级倾向。', render: renderGeneration(repository) },
             ] },
-            { id: 'provider', label: 'Provider', sections: [
-                { id: 'provider-config', title: 'Provider 配置（OpenAI Compatible）', description: 'API Key 仅本地保存，不硬编码、不进入日志或诊断报告。', render: renderProvider(repository) },
+            { id: 'provider', label: '接口', sections: [
+                { id: 'provider-config', title: '接口设置（OpenAI Compatible）', description: 'API Key 仅本地保存，不硬编码、不进入日志或诊断报告。', render: renderProvider(repository) },
             ] },
         ],
     }));

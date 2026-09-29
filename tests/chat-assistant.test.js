@@ -360,6 +360,33 @@ test('Iteration 3 L1: outgoing unread status is passive while incoming unread ke
     assert.equal(incoming.element.querySelector('.vgen-nya-status-row').dataset.direction, 'incoming');
 });
 
+test('Iteration 3 L1: ReadGate held-unread keeps incoming red even when server state already reads', () => {
+    const documentObject = new MiniDocument();
+    const surface = documentObject.createElement('div'); surface.className = 'str-chat str-chat__channel'; documentObject.body.append(surface);
+    const element = documentObject.createElement('div'); element.className = 'str-chat__message';
+    const bubble = documentObject.createElement('div'); bubble.className = 'str-chat__message-bubble'; element.append(bubble); surface.append(element);
+    const message = { id: 'm1', created_at: '2026-01-01T00:00:00Z', user: { id: 'other' } };
+    const channel = {
+        cid: 'messaging:a',
+        getClient: () => ({ userID: 'self' }),
+        state: { messages: [message], read: { self: { user: { id: 'self' }, last_read: '2026-01-01T00:00:01Z' } } },
+    };
+    surface['__reactProps$test'] = { channel };
+    element['__reactProps$test'] = { message };
+    const gate = new ReadGate({ enabled: true });
+    gate.observeLatest('messaging:a', message);
+    // A held read request means the server read never went through: the newest
+    // incoming message must stay unread despite the local read timestamp.
+    gate.interceptRead({ cid: 'messaging:a', body: JSON.stringify({ message_id: 'm1' }), perform: () => {}, cancel: () => {} });
+    new StreamChatAdapter(surface, { documentObject }).refresh({
+        settings: { keepUnread: true, showSeen: true, showTimestamps: true, showStatusBar: true, compactReactions: true },
+        readGate: gate,
+    });
+    const marker = element.querySelector('.vgen-nya-read-marker');
+    assert.equal(marker.textContent, '●');
+    assert.equal(marker.dataset.status, 'unread');
+});
+
 test('Iteration 3 L1: Quick Chat adapter selects an existing native Stream conversation without sending', async () => {
     const documentObject = new MiniDocument();
     const overlay = documentObject.createElement('div'); overlay.className = 'str-chat str-chat__channel-list'; documentObject.body.append(overlay);
