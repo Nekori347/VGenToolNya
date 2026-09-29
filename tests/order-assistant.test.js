@@ -22,7 +22,7 @@ import {
     CLIENT_BACKGROUND_ERROR_TTL_MS,
     CLIENT_BACKGROUND_TTL_MS,
 } from '../src/order/client-background-cache.js';
-import { OrderAssistantRuntime, OrderAssistantSession } from '../src/order/order-assistant.js';
+import { backgroundLevel, OrderAssistantRuntime, OrderAssistantSession } from '../src/order/order-assistant.js';
 import { defaultOrderPanelResolver, OrderDetailLifecycle } from '../src/order/order-detail-lifecycle.js';
 
 class Observer {
@@ -431,7 +431,18 @@ test('Iteration 5 L2: detached VGen modal starts one bounded recovery scan for i
     lifecycle.unmount();
 });
 
-test('Iteration 5 L2: warning, selectable review popover and copy work without a false safe state', async () => {
+test('Iteration 5 L1: background level prioritizes red > yellow > green and handles empty/error', () => {
+    const client = identity('level');
+    assert.equal(backgroundLevel(normalizeReviewContext([{ wouldRecommend: false, reviewText: 'Bad' }], client)).level, 'red');
+    assert.equal(backgroundLevel(normalizeReviewContext([{ rating: 5, body: 'A' }, { rating: 3, body: 'B' }], client)).level, 'red');
+    assert.equal(backgroundLevel(normalizeReviewContext([{ rating: 5, body: 'A' }, { rating: 4, body: 'B' }], client)).level, 'yellow');
+    assert.equal(backgroundLevel(normalizeReviewContext([{ rating: 5, body: 'A' }, { wouldRecommend: true, reviewText: 'B' }], client)).level, 'green');
+    assert.equal(backgroundLevel(null).level, 'muted');
+    assert.equal(backgroundLevel({ state: REVIEW_SOURCE_STATES.empty, reviews: [] }).level, 'muted');
+    assert.equal(backgroundLevel({ state: REVIEW_SOURCE_STATES.error, reviews: [] }).level, 'muted');
+});
+
+test('Iteration 5 L2: background bar reports yellow for four-star and copies via icon actions', async () => {
     const documentObject = new MiniDocument();
     const panel = documentObject.createElement('section'); documentObject.body.append(panel);
     const writes = [];
@@ -443,32 +454,28 @@ test('Iteration 5 L2: warning, selectable review popover and copy work without a
     session.mount();
     session.result = normalizeReviewContext({ reviews: [{ rating: 4, body: 'Selectable review body', reviewer: 'Anonymous' }] }, session.identity);
     session.render();
-    const warning = buttons(session.root).find((button) => button.dataset.action === 'toggle-reviews');
-    assert.match(warning.textContent, /1 条/);
-    warning.click();
-    assert.equal(session.popover.hidden, false);
-    const body = descendants(session.popover).find((node) => node.className === 'vgen-nya-order-assistant__review-body');
+    assert.equal(session.bar.dataset.level, 'yellow');
+    assert.equal(session.label.textContent, '存在非满分评价');
+    const copyId = buttons(session.actions).find((button) => button.dataset.action === 'copy-id');
+    const copyUrl = buttons(session.actions).find((button) => button.dataset.action === 'copy-url');
+    assert.ok(copyId && copyUrl);
+    copyId.click();
+    await Promise.resolve();
+    assert.deepEqual(writes, ['@review-client']);
+    const body = descendants(session.popover).find((node) => node.className === 'vgen-nya-background__review-body');
     assert.equal(body.textContent, 'Selectable review body');
     assert.equal(body.translate, true);
     buttons(session.popover).find((button) => button.dataset.action === 'copy-review').click();
     await Promise.resolve();
-    assert.deepEqual(writes, ['Selectable review body']);
-
-    session.result = normalizeReviewContext({ reviews: [{ rating: 5, body: 'Five only' }] }, session.identity);
-    session.render();
-    assert.equal(buttons(session.root).some((button) => /存在/.test(button.textContent)), false);
-    session.result = { state: REVIEW_SOURCE_STATES.error, reviews: [], negativeReviews: [] };
-    session.render();
-    assert.match(session.root.textContent + descendants(session.root).map((node) => node.textContent).join(' '), /加载失败/);
-    assert.doesNotMatch(session.root.textContent, /不推荐|推荐/);
+    assert.deepEqual(writes, ['@review-client', 'Selectable review body']);
     session.unmount();
 });
 
-test('Iteration 5 L2: binary non-recommendation renders negative review terminology', () => {
+test('Iteration 5 L2: binary non-recommendation reports red and lists only the negative record', () => {
     const documentObject = new MiniDocument();
     const panel = documentObject.createElement('section'); documentObject.body.append(panel);
     const session = new OrderAssistantSession({
-        panel, identity: identity('binary-ui', panel), settings: { copyButtons: true, clientBackground: true },
+        panel, identity: identity('binary-ui', panel), settings: { copyButtons: false, clientBackground: true },
         adapter: { fetch: async () => normalizeReviewContext([], identity('binary-ui')) },
         cache: new ClientBackgroundCache(), clipboard: { writeText: async () => {} },
     });
@@ -478,13 +485,30 @@ test('Iteration 5 L2: binary non-recommendation renders negative review terminol
         { wouldRecommend: false, reviewText: 'Not recommended' },
     ], session.identity);
     session.render();
-    const warning = buttons(session.root).find((button) => button.dataset.action === 'toggle-reviews');
-    assert.match(warning.textContent, /1 条不推荐/);
-    warning.click();
+    assert.equal(session.bar.dataset.level, 'red');
+    assert.equal(session.label.textContent, '存在不推荐记录');
     const labels = descendants(session.popover).filter((node) => node.tagName === 'STRONG').map((node) => node.textContent);
     assert.equal(labels.includes('不推荐'), true);
-    const body = descendants(session.popover).find((node) => node.className === 'vgen-nya-order-assistant__review-body');
-    assert.equal(body.textContent, 'Not recommended');
+    const bodies = descendants(session.popover).filter((node) => node.className === 'vgen-nya-background__review-body').map((node) => node.textContent);
+    assert.deepEqual(bodies, ['Not recommended']);
+    session.unmount();
+});
+
+test('Iteration 5 L2: five-star history reports green and does not list normal reviews', () => {
+    const documentObject = new MiniDocument();
+    const panel = documentObject.createElement('section'); documentObject.body.append(panel);
+    const session = new OrderAssistantSession({
+        panel, identity: identity('green-ui', panel), settings: { copyButtons: false, clientBackground: true },
+        adapter: { fetch: async () => normalizeReviewContext([], identity('green-ui')) },
+        cache: new ClientBackgroundCache(), clipboard: { writeText: async () => {} },
+    });
+    session.mount();
+    session.result = normalizeReviewContext([{ rating: 5, body: 'Five star' }, { wouldRecommend: true, reviewText: 'Recommended' }], session.identity);
+    session.render();
+    assert.equal(session.bar.dataset.level, 'green');
+    assert.equal(session.label.textContent, '评价记录正常');
+    const empty = descendants(session.popover).find((node) => node.className === 'vgen-nya-background__empty');
+    assert.equal(empty.textContent, '无需要关注的记录');
     session.unmount();
 });
 
@@ -505,7 +529,7 @@ test('Iteration 5 L2: runtime keeps one UI session and settings coexist with the
     });
     runtime.mount();
     lifecycle.emit({ type: 'open', panel, identity: identity('a', panel) });
-    const assistantCount = () => descendants(documentObject.body).filter((node) => node.dataset.vgenNyaUi === 'order-assistant').length;
+    const assistantCount = () => descendants(documentObject.body).filter((node) => node.dataset.vgenNyaUi === 'client-background').length;
     assert.equal(assistantCount(), 1);
     lifecycle.emit({ type: 'change', panel, identity: identity('b', panel) });
     assert.equal(assistantCount(), 1);

@@ -153,7 +153,7 @@ test('Iteration 8 L2: session exportOrder reuses fetched data without a DOM leak
     assert.equal(exported.review.negativeCount, 1);
     assert.equal(exported.review.reviews[0].body, 'Low confidence');
     assert.equal(JSON.stringify(exported).includes('mountTarget'), false);
-    assert.deepEqual(descendants(panel).filter((node) => node.dataset?.vgenNyaUi === 'order-assistant').length, 1);
+    assert.deepEqual(descendants(panel).filter((node) => node.dataset?.vgenNyaUi === 'client-background').length, 1);
     session.unmount();
 });
 

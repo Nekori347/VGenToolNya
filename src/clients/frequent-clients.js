@@ -5,14 +5,23 @@ const PROFILE_CACHE_MS = 6 * 60 * 60 * 1000;
 const LEGACY_FOOTER_SELECTOR = '[class*="CreatorSidebar__SidebarFooter"]';
 const MODERN_SIDEBAR_SELECTOR = '[class*="DesktopSidebar__Sidebar"]';
 const CLIENTS_CSS = `
-.vgen-nya-clients{--nya-clients-bg:#13252bee;--nya-clients-fg:#eef8f7;--nya-clients-border:#6f8588;--nya-clients-divider:#ffffff22;--nya-clients-control:#ffffff18;--nya-clients-accent-a:#4f7cff;--nya-clients-accent-b:#3bdfbc;margin:10px 8px;border:1px solid var(--nya-clients-border);border-radius:10px;overflow:hidden;background:var(--nya-clients-bg);color:var(--nya-clients-fg);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients{--nya-shell:#ffffff;--nya-soft:#f3f5f9;--nya-hover:rgba(79,124,255,.11);--nya-text:#252a37;--nya-muted:#737b8e;--nya-border:rgba(32,45,69,.15);--nya-blue:#4f7cff;--nya-green:#20cda7;display:flex;flex-direction:column;margin:4px 8px 8px 6px;border:1px solid var(--nya-border);border-radius:10px;overflow:hidden;background:var(--nya-shell);color:var(--nya-text);font:12px/1.35 system-ui,sans-serif;min-height:var(--vgen-nya-clients-min-height)}
+.vgen-nya-clients[data-theme="dark"]{--nya-shell:#272834;--nya-soft:#323440;--nya-hover:rgba(113,149,255,.14);--nya-text:#f2f4f8;--nya-muted:#b7bdca;--nya-border:rgba(255,255,255,.11);--nya-blue:#7195ff;--nya-green:#3bdfbc}
 .vgen-nya-clients[data-collapsed="true"]{min-height:0}
-.vgen-nya-clients__accent{height:2px;flex:0 0 auto;background:linear-gradient(90deg,var(--nya-clients-accent-a),var(--nya-clients-accent-b))}
-.vgen-nya-clients__header{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--nya-clients-divider)}.vgen-nya-clients__header strong{margin-right:auto}.vgen-nya-clients__header button{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:var(--nya-clients-control);color:inherit;cursor:pointer}.vgen-nya-clients__header button:hover{background:#ffffff26}
-.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto}.vgen-nya-clients__row{display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);padding:5px 8px;background-color:var(--nya-clients-bg);background-size:cover;background-position:center;border-bottom:1px solid var(--nya-clients-divider);transition:background-color 120ms ease}.vgen-nya-clients__row:hover{background-color:#ffffff14}.vgen-nya-clients__row[style*="background-image"]{color:#fff;text-shadow:0 1px 2px #000;background-blend-mode:multiply}
-.vgen-nya-clients__avatar{position:relative;flex:0 0 34px;width:34px;height:34px;padding:0;border:0;border-radius:9px;cursor:pointer;background:#30434a}.vgen-nya-clients__avatar:hover{box-shadow:0 0 0 2px var(--nya-clients-accent-b)}.vgen-nya-clients__avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;display:flex;width:17px;height:17px;align-items:center;justify-content:center;border-radius:50%;background:#fff;color:#263238;box-shadow:0 0 0 1px #a1b5b8;pointer-events:none}.vgen-nya-clients__chat-badge svg{width:12px;height:12px}
-.vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;margin-left:10px;color:inherit;text-decoration:none}.vgen-nya-clients__primary{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{opacity:.7;font-size:10px}.vgen-nya-clients__notice{margin-left:5px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700}.vgen-nya-clients__empty{padding:10px;opacity:.75}
-@media (prefers-color-scheme:light){.vgen-nya-clients{--nya-clients-bg:#f5faf9f2;--nya-clients-fg:#1f2b2c;--nya-clients-border:#9ab0b2;--nya-clients-divider:#17393f20;--nya-clients-control:#17393f12}.vgen-nya-clients__header button:hover{background:#17393f1f}.vgen-nya-clients__row:hover{background-color:#17393f12}.vgen-nya-clients__row[style*="background-image"]{background-color:#52666b}}
+.vgen-nya-clients__accent{height:1px;flex:0 0 auto;background:linear-gradient(90deg,var(--nya-blue),var(--nya-green))}
+.vgen-nya-clients[data-collapsed="true"] .vgen-nya-clients__accent,.vgen-nya-clients[data-collapsed="true"] .vgen-nya-clients__list{display:none}
+.vgen-nya-clients__header{display:flex;align-items:center;justify-content:space-between;min-height:20px;height:20px;flex:0 0 20px;padding:1px 3px 1px 8px;border-bottom:1px solid var(--nya-border);background:var(--nya-soft)}
+.vgen-nya-clients__header strong{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700}.vgen-nya-clients__header strong::before{content:"";width:6px;height:6px;border-radius:50%;background:linear-gradient(135deg,var(--nya-blue),var(--nya-green))}
+.vgen-nya-clients__header-actions{display:flex;align-items:center;gap:3px}
+.vgen-nya-clients__header button{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:1px solid var(--nya-border);border-radius:5px;background:transparent;color:var(--nya-muted);cursor:pointer}
+.vgen-nya-clients__header button:hover{background:var(--nya-hover);color:var(--nya-text)}
+.vgen-nya-clients__header svg{width:11px;height:11px}
+.vgen-nya-clients__list{max-height:calc(var(--vgen-nya-clients-row-height) * 7);overflow:auto;padding:3px 3px 0}
+.vgen-nya-clients__row{position:relative;display:flex;align-items:center;min-height:var(--vgen-nya-clients-row-height);height:var(--vgen-nya-clients-row-height);min-width:0;margin-bottom:3px;border:1px solid var(--nya-border);border-radius:8px;background-color:var(--nya-soft);background-position:center 42%;background-size:cover;overflow:hidden}
+.vgen-nya-clients__row::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,color-mix(in srgb,var(--nya-shell) 94%,transparent) 0%,color-mix(in srgb,var(--nya-shell) 84%,transparent) 62%,color-mix(in srgb,var(--nya-shell) 54%,transparent) 100%);pointer-events:none}
+.vgen-nya-clients__row:hover::before{background:linear-gradient(90deg,color-mix(in srgb,var(--nya-hover) 86%,var(--nya-shell)) 0%,color-mix(in srgb,var(--nya-hover) 66%,transparent) 100%)}
+.vgen-nya-clients__avatar{position:relative;z-index:1;flex:0 0 29px;width:29px;height:29px;align-self:center;margin:0 7px 0 6px;padding:0;border:0;border-radius:8px;background:transparent;cursor:pointer}.vgen-nya-clients__avatar:hover{box-shadow:0 0 0 2px var(--nya-green)}.vgen-nya-clients__avatar:focus-visible{outline:2px solid var(--nya-green);outline-offset:3px}.vgen-nya-clients__avatar:disabled{opacity:.65;cursor:wait}.vgen-nya-clients__avatar img{display:block;width:29px;height:29px;border:1px solid color-mix(in srgb,var(--nya-green) 45%,var(--nya-border));border-radius:8px;background:var(--nya-soft);object-fit:cover}.vgen-nya-clients__chat-badge{position:absolute;right:-5px;bottom:-5px;z-index:3;display:flex;width:16px;height:16px;align-items:center;justify-content:center;border-radius:50%;background:var(--nya-shell);color:var(--nya-text);box-shadow:0 0 0 1px var(--nya-border);pointer-events:none}.vgen-nya-clients__chat-badge svg{width:12px;height:12px;fill:currentColor;stroke:none}
+.vgen-nya-clients__link{display:flex;flex:1;min-width:0;flex-direction:column;position:relative;z-index:1;color:var(--nya-text);text-decoration:none}.vgen-nya-clients__primary{min-width:0;overflow:hidden;font-size:10.5px;font-weight:700;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary,.vgen-nya-clients__updates{min-width:0;overflow:hidden;color:var(--nya-muted);text-overflow:ellipsis;white-space:nowrap}.vgen-nya-clients__secondary{font-size:8.5px;line-height:1.2}.vgen-nya-clients__updates{font-size:7.8px;line-height:1.2}.vgen-nya-clients__notice{margin-left:auto;flex:0 0 auto;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border-radius:5px;background:#ffcf5a;color:#392d00;font-size:9px;font-weight:700;position:relative;z-index:1}.vgen-nya-clients__empty{padding:18px 8px;color:var(--nya-muted);text-align:center;font-size:11px}
 `;
 
 const latestDate = (items, fields) => (items || []).reduce((latest, item) => {
@@ -28,6 +37,31 @@ const make = (documentObject, tag, className = '', text = '') => {
 };
 
 const abortError = () => Object.assign(new Error('Frequent Client refresh aborted'), { name: 'AbortError' });
+
+function parseRGB(value) {
+    const match = String(value || '').match(/rgba?\(([^)]+)\)/);
+    if (!match) return null;
+    const parts = match[1].split(',').map((part) => Number(part.trim()));
+    if (parts.length < 3 || parts.some((part) => Number.isNaN(part))) return null;
+    return { r: parts[0], g: parts[1], b: parts[2], a: parts.length >= 4 ? parts[3] : 1 };
+}
+
+function backgroundColor(node) {
+    const view = node?.ownerDocument?.defaultView || globalThis;
+    const computed = typeof view.getComputedStyle === 'function' ? view.getComputedStyle(node) : null;
+    return computed?.backgroundColor || node?.style?.backgroundColor || '';
+}
+
+// Mirrors the legacy VGen小工具 surface detection so the panel theme always
+// matches the actual VGen sidebar instead of the OS preference.
+function detectDarkSurface(start) {
+    let node = start;
+    for (let depth = 0; node && depth < 7; depth += 1, node = node.parentElement) {
+        const rgb = parseRGB(backgroundColor(node));
+        if (rgb && rgb.a >= 0.08) return (rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722) < 128;
+    }
+    return true;
+}
 
 export class FrequentClientsRuntime {
     constructor({ repository, chat, documentObject = globalThis.document, MutationObserverClass = globalThis.MutationObserver, AbortControllerClass = documentObject?.defaultView?.AbortController || globalThis.AbortController, fetchImpl = globalThis.fetch, hostResolver } = {}) {
@@ -169,17 +203,19 @@ export class FrequentClientsRuntime {
         const { clients, clientsSettings } = this.repository.read();
         this.panel.dataset.collapsed = String(clientsSettings.collapsed);
         this.panel.style.cssText = `--vgen-nya-clients-min-height:${clientsSettings.minHeight}px;--vgen-nya-clients-row-height:${clientsSettings.rowHeight}px`;
+        this.panel.dataset.theme = detectDarkSurface(this.host) ? 'dark' : 'light';
         this.panel.replaceChildren();
         const accent = make(this.documentObject, 'div', 'vgen-nya-clients__accent');
         const header = make(this.documentObject, 'header', 'vgen-nya-clients__header');
-        const refresh = this.#button('refresh', '', '刷新资料');
-        setButtonIcon(refresh, 'refresh', { size: 13 });
-        const collapse = this.#button('collapse', '', clientsSettings.collapsed ? '展开' : '折叠');
-        setButtonIcon(collapse, clientsSettings.collapsed ? 'chevronDown' : 'chevronUp', { size: 13 });
+        const actions = make(this.documentObject, 'div', 'vgen-nya-clients__header-actions');
+        const refresh = this.#button('refresh', '', '刷新全部用户资料');
+        setButtonIcon(refresh, 'refresh', { size: 11 });
+        const collapse = this.#button('collapse', '', clientsSettings.collapsed ? '展开常用访问' : '折叠常用访问');
+        setButtonIcon(collapse, clientsSettings.collapsed ? 'chevronDown' : 'chevronUp', { size: 11 });
+        actions.append(refresh, collapse);
         header.append(
             make(this.documentObject, 'strong', '', '常用访问'),
-            refresh,
-            collapse,
+            actions,
         );
         this.panel.append(accent, header);
         const list = make(this.documentObject, 'div', 'vgen-nya-clients__list');

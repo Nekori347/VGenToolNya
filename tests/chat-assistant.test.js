@@ -494,8 +494,8 @@ test('Iteration 3 L2: Frequent Clients mounts against the current CreatorSidebar
     const runtime = new FrequentClientsRuntime({ repository: repo, chat: { openUser() {} }, documentObject, MutationObserverClass: null });
     runtime.mount();
     assert.equal(runtime.host, sidebar);
-    assert.match(runtime.style.textContent, /prefers-color-scheme:light/);
-    assert.match(runtime.style.textContent, /background-blend-mode:multiply/);
+    assert.match(runtime.style.textContent, /data-theme="dark"/);
+    assert.match(runtime.style.textContent, /linear-gradient\(90deg/);
     assert.equal(descendants(sidebar).filter((node) => node.dataset.vgenNyaUi === 'frequent-clients').length, 1);
     runtime.unmount();
 });

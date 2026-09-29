@@ -100,7 +100,7 @@ test('Iteration 4 L2: preset integrations add no polling, global subtree observe
     assert.match(order, /observe\(this\.documentObject\.body, \{ childList: true \}\)/);
     assert.doesNotMatch(order, /observe\(this\.documentObject\.body, \{[^}]*subtree:\s*true/);
     const entry = await readFile(path.join(projectRoot, 'src/userscript-entry.js'), 'utf8');
-    assert.doesNotMatch(entry, /core\.mountOrderTextPresets\(\)/, 'Private Note runtime must remain gated until autosave safety is verified');
+    assert.match(entry, /core\.mountOrderTextPresets\(\)/, 'Order text presets runtime must be wired into the lifecycle');
 });
 
 test('Iteration 5 L2: Order Assistant uses one direct-child detector, scoped session observation and GET-only review access', async () => {
@@ -123,5 +123,5 @@ test('Iteration 5 L2: Order Assistant uses one direct-child detector, scoped ses
     assert.match(lifecycle, /\[0, 80, 250, 700, 1500\]/, 'portal scan retries must remain explicitly bounded');
     const entry = await readFile(path.join(projectRoot, 'src/userscript-entry.js'), 'utf8');
     assert.match(entry, /core\.mountOrderAssistant\(\)/);
-    assert.doesNotMatch(entry, /core\.mountOrderTextPresets\(\)/, 'Private Note remains gated');
+    assert.match(entry, /core\.mountOrderTextPresets\(\)/, 'Order text presets runtime must be mounted');
 });

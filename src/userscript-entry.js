@@ -66,7 +66,10 @@ function start() {
     core.mountFrequentClients();
     core.mountOrderAssistant();
     core.mountReviewAssistant();
-    // Private Note may autosave on native change. Keep its runtime gated until PRIVATE-NOTE-LIVE-01 is safe.
+    core.mountOrderTextPresets();
+    // Order text presets are fill-only (never save / deliver). Final Delivery
+    // mounts automatically when its input appears; live verification stays
+    // BLOCKED until a delivery-stage order is safely available.
 }
 
 start();
