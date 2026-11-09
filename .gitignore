@@ -1,0 +1,21 @@
+node_modules/
+.cache/
+.wxt/
+.output/
+Archive/
+evidence/public-home.html
+
+evidence/frontend/
+evidence/integration-failure.png
+
+# Local delivery, authenticated screenshots and captured diagnostics stay local.
+/Demo/
+/evidence/
+.env
+.env.*
+!.env.example
+*.har
+*.log
+*.zip
+/playwright-report/
+/test-results/

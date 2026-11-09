@@ -1,0 +1,14 @@
+/** Classified misses from the authenticated read-only workflow capture. */
+export const discovered:Record<string,Record<string,string>>={
+ commissions:{'How VGen commissions currently work':'VGen 当前的委托流程','Sort':'排序','Nothing in here yet':'这里暂时没有内容','Search by service, commission ID, or client':'按服务、委托编号或客户搜索','Ready':'准备就绪','WIP':'制作中','Stats':'统计',"Drag card here when you're ready for Final Delivery!":'准备最终交付时，将卡片拖到这里！','You got this!':'你可以的！','Client to do':'等待客户处理','Board':'看板','By service':'按服务','By workflow':'按工作流程','Table':'表格'},
+ shared:{'DRAFT':'草稿','PUBLISHED':'已发布','SOLD OUT':'已售罄','CLOSED':'已关闭','UNLISTED':'未公开','Folder':'文件夹','In use':'使用中','Not in use':'未使用','From':'起价','Hide':'隐藏'},
+ discounts:{'Future':'未开始','On-going':'进行中','Past':'已结束'},
+ orders:{'All time':'全部时间','Search by product, order ID, or client':'按商品、订单编号或客户搜索','Purchase date':'购买日期'},
+ products:{'Featured bundles':'精选组合商品','Display bundles in':'组合商品显示方式','Carousel':'轮播','Grid':'网格'},
+ quests:{'Make your':'让你的','products discoverable on VGen.co':'商品在 VGen.co 上被发现','services discoverable on VGen.co':'服务在 VGen.co 上被发现','. VGen staff will never ask for payment or restrict your account as a result of the verification process.':'。VGen 工作人员绝不会因认证而要求付款或限制你的账户。','All Verified Artists are manually reviewed by a member of our team. You must meet all five requirements to be eligible for verification. There are':'所有认证画师均由团队成员人工审核，必须满足全部五项要求才能申请认证。',
+ 'Earn your Star Seller badge, unlock unlimited shop listings, priority discovery to your profile, and more!*':'获得星级卖家徽章，解锁不限数量的上架商品、主页优先展示等权益！*',
+ '5 product sales, or 2 ‘One of a kinds’ in the last 30 days':'过去 30 天售出 5 件商品，或 2 件孤品','5 product sales, or 2 \'One of a kinds\' in the last 30 days':'过去 30 天售出 5 件商品，或 2 件孤品',
+ '$50 USD shop earnings in the last 30 days':'过去 30 天商店收入达到 50 美元','2 shop reviews from different customers in the last 30 days':'过去 30 天获得来自 2 位不同顾客的商店评价','Once you become a Star Seller, you must maintain certain requirements in order to keep your status.':'成为星级卖家后，需要持续满足部分条件才能保持该状态。','Shop Grand Opening':'商店开业'},
+ settings:{'Deactivate Account':'停用账户','Numbers':'数字显示','Personal info':'个人信息','Strictly confidential between you and VGen':'仅你与 VGen 知晓，严格保密',"You'll be able to log in to VGen using your password OR any of your connected socials":'可以使用密码或任一已关联的社交账户登录 VGen','2-step verification':'两步验证','Choose whether you want to see number of Likes on all showcases':'选择是否显示所有作品的喜欢数量','Choose whether you want to see number of Views on all showcases':'选择是否显示所有作品的浏览量','Disconnect':'取消关联','Protect your account with an authenticator app':'使用身份验证器应用保护账户','Review your birthdate':'核对出生日期','See Like count':'显示喜欢数量','See View count':'显示浏览量','Twitter':'Twitter','Your birthdate':'出生日期','Your timezone is only used to help us calculate time differences':'时区仅用于计算时差','Connect':'关联','Safety':'安全'},
+ wallet:{'Date':'日期','All transactions':'全部交易','Go to PayPal':'前往 PayPal','Setup required':'需要设置'},
+};

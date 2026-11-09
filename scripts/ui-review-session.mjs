@@ -1,0 +1,5 @@
+import {chromium} from 'playwright';import path from 'node:path';
+const root=process.cwd();const context=await chromium.launchPersistentContext(path.join(root,'.cache/interactive-vgen-profile'),{headless:false,viewport:null,executablePath:path.join(root,'.cache/browsers/chromium-1254/chrome-win64/chrome.exe'),args:['--remote-debugging-port=9335','--remote-debugging-address=127.0.0.1','--window-size=1366,900',`--load-extension=${path.join(root,'Demo/chrome-mv3')}`,`--disable-extensions-except=${path.join(root,'Demo/chrome-mv3')}`]});
+const blocked=[];await context.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if((u.hostname==='vgen.co'||u.hostname==='api.vgen.co'||u.hostname.endsWith('.stream-io-api.com'))&&!['GET','HEAD','OPTIONS'].includes(req.method())){blocked.push({method:req.method(),origin:u.origin});await route.abort('blockedbyclient')}else await route.continue()});
+console.log('Readonly browser ready on localhost:9335; native viewport; existing login profile.');
+await new Promise(resolve=>context.on('close',resolve));

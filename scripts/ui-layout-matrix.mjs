@@ -1,0 +1,18 @@
+import {chromium} from 'playwright';import fs from 'node:fs/promises';
+const browser=await chromium.connectOverCDP('http://127.0.0.1:9335'),context=browser.contexts()[0],page=context.pages().find(p=>p.url().startsWith('https://vgen.co'));const worker=context.serviceWorkers().find(w=>w.url().startsWith('chrome-extension:'));const options=await context.newPage();await options.goto(`chrome-extension://${new URL(worker.url()).host}/options.html`);const rpc=(type,extra={})=>options.evaluate(m=>chrome.runtime.sendMessage(m),{type,...extra});const cfg=(await rpc('load')).value;const cdp=await context.newCDPSession(page);const {windowId}=await cdp.send('Browser.getWindowForTarget');await cdp.send('Emulation.clearDeviceMetricsOverride');
+const matrix=[];try{
+ for(const [width,height]of [[1280,800],[1366,768],[1920,1080]]){
+  await options.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://vgen.co/*'});for(const t of tabs)await chrome.tabs.setZoom(t.id,1)});await page.bringToFront();const delta=await page.evaluate(()=>({w:outerWidth-innerWidth,h:outerHeight-innerHeight}));await cdp.send('Browser.setWindowBounds',{windowId,bounds:{windowState:'normal',width:width+delta.w,height:height+delta.h}});await page.waitForFunction(w=>innerWidth===w,width,{timeout:5000});
+  for(const zoom of [.8,1,1.25]){
+   await options.evaluate(async zoom=>{const tabs=await chrome.tabs.query({url:'https://vgen.co/*'});const tab=tabs.find(t=>t.url.includes('/creator/portfolio'));await chrome.tabs.setZoom(tab.id,zoom)},zoom);
+   for(const language of ['zh','en','bilingual']){cfg.language=language;await rpc('save',{config:cfg});await page.bringToFront();await page.waitForTimeout(350);
+    const state=await page.evaluate(()=>{const issues=[];for(const small of document.querySelectorAll('[data-nya-i18n]')){const r=small.getBoundingClientRect();if(!r.width||!r.height)continue;const c=small.closest('button,a,[role="menuitem"],label');if(!c)continue;let p=c.getBoundingClientRect();if(!p.width||!p.height)p=(c.querySelector('.linkInner')||c.parentElement).getBoundingClientRect();if(r.left<p.left-2||r.right>p.right+2||r.top<p.top-2||r.bottom>p.bottom+2)issues.push({component:c.className,text:small.textContent})}return {viewport:[innerWidth,innerHeight],dpr:devicePixelRatio,horizontalOverflow:Math.max(0,document.documentElement.scrollWidth-innerWidth),secondary:document.querySelectorAll('[data-nya-i18n]').length,issues,htmlZoom:getComputedStyle(document.documentElement).zoom,bodyZoom:getComputedStyle(document.body).zoom,scrollable:document.documentElement.scrollHeight>innerHeight}});
+    const nativeZoom=await options.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://vgen.co/*'});return chrome.tabs.getZoom(tabs.find(t=>t.url.includes('/creator/portfolio')).id)});matrix.push({size:[width,height],zoom,nativeZoom,language,...state});
+    if(language==='bilingual')await page.screenshot({path:`evidence/ui-remediation/layout-${width}x${height}-${zoom}.png`});
+   }
+  }
+ }
+ await fs.writeFile('evidence/ui-remediation/layout-matrix.json',JSON.stringify(matrix,null,2));console.log(JSON.stringify({cases:matrix.length,overflow:matrix.filter(t=>t.horizontalOverflow>0),clipped:matrix.filter(t=>t.issues.length),zoomConfirmed:matrix.every(t=>t.zoom===t.nativeZoom)}));
+}finally{
+ await options.evaluate(async()=>{const tabs=await chrome.tabs.query({url:'https://vgen.co/*'});for(const t of tabs)await chrome.tabs.setZoom(t.id,1)});cfg.language='zh';await rpc('save',{config:cfg});await cdp.send('Browser.setWindowBounds',{windowId,bounds:{width:1382,height:895}});await options.close();await page.bringToFront();await browser.close();
+}
